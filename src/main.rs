@@ -1,7 +1,6 @@
 use rgrep::regex::Regex;
 
 fn main() {
-
     let regex = Regex::new("ab.*c.*f");
 
     println!("Hello!");
@@ -37,7 +36,7 @@ mod tests {
     #[test]
     fn test_match() -> Result<(), &'static str> {
         let value = "abcdef";
-        
+
         let regex = Regex::new("ab.*e").unwrap();
 
         let matches = regex.test(value)?;
@@ -49,7 +48,7 @@ mod tests {
     #[test]
     fn test_no_match() -> Result<(), &'static str> {
         let value = "abcdef";
-        
+
         let regex = Regex::new("ab.*h").unwrap();
 
         let matches = regex.test(value)?;
@@ -61,7 +60,7 @@ mod tests {
     #[test]
     fn test_match_2() -> Result<(), &'static str> {
         let value = "ab1234cdefg";
-        
+
         let regex = Regex::new("ab.*c.*f").unwrap();
 
         let matches = regex.test(value)?;
@@ -73,7 +72,7 @@ mod tests {
     #[test]
     fn test_no_match_2() -> Result<(), &'static str> {
         let value = "ab1234cdegh";
-        
+
         let regex = Regex::new("ab.*c.*f").unwrap();
 
         let matches = regex.test(value)?;

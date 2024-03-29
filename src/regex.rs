@@ -4,7 +4,6 @@ use std::collections::VecDeque;
 pub struct RegexStep {
     val: RegexVal,
     rep: RegexRep,
-
 }
 
 #[derive(Debug, Clone)]
@@ -18,10 +17,10 @@ pub enum RegexVal {
 pub enum RegexRep {
     Any,
     Exact(usize),
-    Range{
+    Range {
         min: Option<usize>,
         max: Option<usize>,
-    }
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -32,7 +31,7 @@ pub enum RegexClass {
     Lower,
     Upper,
     Space,
-    Punct
+    Punct,
 }
 
 #[derive(Debug, Clone)]
@@ -44,7 +43,7 @@ pub struct EvaluatedStep {
 
 #[derive(Debug, Clone)]
 pub struct Regex {
-    steps: Vec<RegexStep>
+    steps: Vec<RegexStep>,
 }
 
 impl RegexVal {
@@ -58,7 +57,7 @@ impl RegexVal {
                     println!("No matcheo literal {}", l);
                     0
                 }
-            },
+            }
             RegexVal::Wildcard => {
                 if let Some(c) = value.chars().next() {
                     println!("Matcheo wildcard size: {}", c.len_utf8());
@@ -67,7 +66,7 @@ impl RegexVal {
                     println!("No matcheo wildcard");
                     0
                 }
-            },
+            }
             RegexVal::Class(_) => 0,
         }
     }
@@ -83,14 +82,15 @@ impl TryFrom<&str> for Regex {
 
         let mut chars_iter = expression.chars();
         while let Some(c) = chars_iter.next() {
-            let step = match c { // pattern matching
-                '.' => Some(RegexStep{ 
-                    rep: RegexRep::Exact(1), 
-                    val: RegexVal::Wildcard 
+            let step = match c {
+                // pattern matching
+                '.' => Some(RegexStep {
+                    rep: RegexRep::Exact(1),
+                    val: RegexVal::Wildcard,
                 }),
-                'a'..='z' | 'A'..='Z' => Some(RegexStep{ 
-                    rep: RegexRep::Exact(1), 
-                    val: RegexVal::Literal(c) 
+                'a'..='z' | 'A'..='Z' => Some(RegexStep {
+                    rep: RegexRep::Exact(1),
+                    val: RegexVal::Literal(c),
                 }),
                 '*' => {
                     if let Some(last) = steps.last_mut() {
@@ -99,26 +99,26 @@ impl TryFrom<&str> for Regex {
                         return Err("Invalid regex: cant start with *");
                     }
                     None
-                },
+                }
                 '?' => {
                     if let Some(last) = steps.last_mut() {
-                        last.rep = RegexRep::Range { 
-                            min: Some(0), 
-                            max: Some(1) ,
+                        last.rep = RegexRep::Range {
+                            min: Some(0),
+                            max: Some(1),
                         };
                     } else {
                         return Err("Invalid regex: unexpected ? character");
                     }
                     None
-                },
+                }
                 '\\' => match chars_iter.next() {
-                    Some(literal) => Some(RegexStep{ 
-                        rep: RegexRep::Exact(1), 
-                        val: RegexVal::Literal(literal) 
+                    Some(literal) => Some(RegexStep {
+                        rep: RegexRep::Exact(1),
+                        val: RegexVal::Literal(literal),
                     }),
                     None => return Err("Invalid regex: invalid backslash"),
-                }
-                _ => return Err("Invalid character in regex")
+                },
+                _ => return Err("Invalid character in regex"),
             };
 
             if let Some(s) = step {
@@ -131,8 +131,7 @@ impl TryFrom<&str> for Regex {
 }
 
 impl Regex {
-
-    pub fn new (expression: &str) -> Result<Self, &str> {
+    pub fn new(expression: &str) -> Result<Self, &str> {
         Regex::try_from(expression)
     }
 
@@ -158,7 +157,7 @@ impl Regex {
                                     index -= size;
                                     continue 'steps;
                                     // no queremos que continue para no registrar al step como evaluado
-                                },
+                                }
                                 None => return Ok(false),
                             }
                         } else {
@@ -167,11 +166,11 @@ impl Regex {
                         }
                     }
                     stack.push(EvaluatedStep {
-                        step: step,
+                        step,
                         match_size,
                         backtrackable: false,
                     })
-                },
+                }
                 RegexRep::Any => {
                     let mut keep_matching = true;
                     while keep_matching {
@@ -189,7 +188,7 @@ impl Regex {
                             keep_matching = false;
                         }
                     }
-                },
+                }
                 //RegexRep::Range { min, max } => todo!(),
                 _ => return Ok(false),
             }
@@ -206,7 +205,7 @@ fn backtrack(
 ) -> Option<usize> {
     let mut back_size = 0;
     next.push_front(current);
-    while let Some(e) = evaluated.pop(){
+    while let Some(e) = evaluated.pop() {
         back_size += e.match_size;
         if e.backtrackable {
             println!("Backtrack {}", back_size);
