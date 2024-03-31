@@ -3,13 +3,12 @@
 use std::env;
 
 // use rgrep::regex::Regex;
-use rgrep::Arguments;
-use rgrep::run;
 use rgrep::print_error;
+use rgrep::run;
+use rgrep::Arguments;
 
 fn main() {
-    let args = env::args_os()
-        .map(|arg| arg.to_string_lossy().into_owned());
+    let args = env::args_os().map(|arg| arg.to_string_lossy().into_owned());
 
     match Arguments::new(args) {
         Ok(arguments) => {
