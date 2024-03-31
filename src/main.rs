@@ -3,25 +3,22 @@
 use std::env;
 
 // use rgrep::regex::Regex;
-use rgrep::run;
 use rgrep::Arguments;
+use rgrep::run;
+use rgrep::print_error;
 
 fn main() {
-    let args: Vec<String> = env::args_os()
-        .map(|arg| arg.to_string_lossy().into_owned())
-        .collect();
+    let args = env::args_os()
+        .map(|arg| arg.to_string_lossy().into_owned());
 
-    match Arguments::new(&args) {
+    match Arguments::new(args) {
         Ok(arguments) => {
-            println!("Searching for {}", arguments.regex);
-            println!("In file {}", arguments.path);
-
             if let Err(err) = run(arguments) {
-                eprintln!("rgrep: {err}");
+                print_error(err.to_string());
             }
         }
         Err(err) => {
-            eprint!("rgrep: {err}");
+            print_error(err.to_string());
         }
     }
 }
