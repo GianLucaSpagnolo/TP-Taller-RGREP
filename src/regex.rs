@@ -135,7 +135,7 @@ impl Regex {
         Regex::try_from(expression)
     }
 
-    pub fn test(self, value: &str) -> Result<bool, &str> {
+    pub fn evaluate(self, value: &str) -> Result<bool, &str> {
         if !value.is_ascii() {
             return Err("Non-ascii characters in input");
         }
