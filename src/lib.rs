@@ -1,5 +1,7 @@
 pub mod regex;
 
+use regex::Regex;
+
 use std::error::Error;
 use std::fs;
 use std::io::Write;
@@ -32,12 +34,27 @@ impl Arguments {
     }
 }
 
-pub fn run(arguments: Arguments) -> Result<(), Box<dyn Error>> {
-    let contents = fs::read_to_string(arguments.path)?;
+pub fn run_rgrep(arguments: Arguments) -> Result<(), Box<dyn Error>> {
+    let text = fs::read_to_string(arguments.path)?;
+    let iter = text.lines();
+    let mut correct_lines: Vec<&str> = Vec::new();
 
-    println!("With text:\n\n{contents}");
+    for line in iter {
+        let regex = Regex::new(&arguments.regex)?;
+        if regex.evaluate(line)? {
+            correct_lines.push(line);
+        }
+    }
+
+    print_correct_lines(correct_lines);
 
     Ok(())
+}
+
+fn print_correct_lines(lines: Vec<&str>) {
+    for line in lines {
+        println!("{}", line);
+    }
 }
 
 pub fn print_error(err: String) {
@@ -74,5 +91,14 @@ mod tests {
         let args3 = binding3.iter().map(|s| s.to_string());
         let arguments3 = Arguments::new(args3).unwrap_err();
         assert_eq!(arguments3, "Invalid arguments: regex and path missing");
+    }
+
+    #[test]
+    fn try_invalid_file() {
+        let binding = { vec!["rgrep", "regex", "res/test-1.txt"] };
+        let args = binding.iter().map(|s| s.to_string());
+        let arguments = Arguments::new(args).unwrap();
+        let result = run_rgrep(arguments).unwrap_err();
+        assert_eq!(result.to_string(), "No such file or directory (os error 2)");
     }
 }

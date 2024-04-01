@@ -1,37 +1,17 @@
 use std::collections::VecDeque;
 
+pub mod regex_class;
+pub mod regex_rep;
+pub mod regex_val;
+
+//use regex_class::RegexClass;
+use regex_rep::RegexRep;
+use regex_val::RegexVal;
+
 #[derive(Debug, Clone)]
 pub struct RegexStep {
     val: RegexVal,
     rep: RegexRep,
-}
-
-#[derive(Debug, Clone)]
-pub enum RegexVal {
-    Literal(char),
-    Wildcard,
-    Class(RegexClass),
-}
-
-#[derive(Debug, Clone)]
-pub enum RegexRep {
-    Any,
-    Exact(usize),
-    Range {
-        min: Option<usize>,
-        max: Option<usize>,
-    },
-}
-
-#[derive(Debug, Clone)]
-pub enum RegexClass {
-    Alnum,
-    Alpha,
-    Digit,
-    Lower,
-    Upper,
-    Space,
-    Punct,
 }
 
 #[derive(Debug, Clone)]
@@ -46,44 +26,15 @@ pub struct Regex {
     steps: Vec<RegexStep>,
 }
 
-impl RegexVal {
-    pub fn matches(&self, value: &str) -> usize {
-        match self {
-            RegexVal::Literal(l) => {
-                if value.chars().next() == Some(*l) {
-                    println!("Matcheo literal {} size: {}", l, l.len_utf8());
-                    l.len_utf8() // cantidad consumida en el input (1 porque es caracter ascii)
-                } else {
-                    println!("No matcheo literal {}", l);
-                    0
-                }
-            }
-            RegexVal::Wildcard => {
-                if let Some(c) = value.chars().next() {
-                    println!("Matcheo wildcard size: {}", c.len_utf8());
-                    c.len_utf8() // cantidad consumida en el input (1 porque es caracter ascii)
-                } else {
-                    println!("No matcheo wildcard");
-                    0
-                }
-            }
-            RegexVal::Class(_) => 0,
-        }
-    }
-}
-
 impl TryFrom<&str> for Regex {
     type Error = &'static str;
 
     fn try_from(expression: &str) -> Result<Self, Self::Error> {
-        let mut steps: Vec<RegexStep> = vec![]; // Vec::new()
-
-        // expression.chars.for_each(f) no sirve porque a veces puedo moverme mas de una posicion
+        let mut steps: Vec<RegexStep> = vec![];
 
         let mut chars_iter = expression.chars();
         while let Some(c) = chars_iter.next() {
             let step = match c {
-                // pattern matching
                 '.' => Some(RegexStep {
                     rep: RegexRep::Exact(1),
                     val: RegexVal::Wildcard,
@@ -215,4 +166,71 @@ fn backtrack(
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_no_ascii() {
+        let value = "abacdef";
+
+        let regex = Regex::new("ab.*c").unwrap();
+
+        let matches = regex.evaluate(value);
+        //assert!(matches.is_err());
+        //assert_eq!(matches, true);
+
+        assert!(matches.is_ok());
+        assert_eq!(matches.unwrap(), true);
+    }
+
+    #[test]
+    fn test_match() -> Result<(), &'static str> {
+        let value = "abcdef";
+
+        let regex = Regex::new("ab.*e").unwrap();
+
+        let matches = regex.evaluate(value)?;
+        assert_eq!(matches, true);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_no_match() -> Result<(), &'static str> {
+        let value = "abcdef";
+
+        let regex = Regex::new("ab.*h").unwrap();
+
+        let matches = regex.evaluate(value)?;
+        assert_eq!(matches, false);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_match_2() -> Result<(), &'static str> {
+        let value = "ab1234cdefg";
+
+        let regex = Regex::new("ab.*c.*f").unwrap();
+
+        let matches = regex.evaluate(value)?;
+        assert_eq!(matches, true);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_no_match_2() -> Result<(), &'static str> {
+        let value = "ab1234cdegh";
+
+        let regex = Regex::new("ab.*c.*f").unwrap();
+
+        let matches = regex.evaluate(value)?;
+        assert_eq!(matches, false);
+
+        Ok(())
+    }
 }
