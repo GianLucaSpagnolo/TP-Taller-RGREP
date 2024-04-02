@@ -12,19 +12,15 @@ impl RegexVal {
         match self {
             RegexVal::Literal(l) => {
                 if value.chars().next() == Some(*l) {
-                    println!("Matcheo literal {} size: {}", l, l.len_utf8());
-                    l.len_utf8() // cantidad consumida en el input (1 porque es caracter ascii)
+                    l.len_utf8()
                 } else {
-                    println!("No matcheo literal {}", l);
                     0
                 }
             }
             RegexVal::Wildcard => {
                 if let Some(c) = value.chars().next() {
-                    println!("Matcheo wildcard size: {}", c.len_utf8());
-                    c.len_utf8() // cantidad consumida en el input (1 porque es caracter ascii)
+                    c.len_utf8()
                 } else {
-                    println!("No matcheo wildcard");
                     0
                 }
             }

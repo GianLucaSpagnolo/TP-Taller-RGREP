@@ -37,24 +37,23 @@ impl Arguments {
 pub fn run_rgrep(arguments: Arguments) -> Result<(), Box<dyn Error>> {
     let text = fs::read_to_string(arguments.path)?;
     let iter = text.lines();
-    let mut correct_lines: Vec<&str> = Vec::new();
+    let mut correct_lines: Vec<String> = Vec::new();
+
+    let regex = Regex::new(&arguments.regex)?;
 
     for line in iter {
-        let regex = Regex::new(&arguments.regex)?;
-        if regex.evaluate(line)? {
-            correct_lines.push(line);
+        let evaluation = regex.clone().evaluate(line)?;
+        if evaluation.result {
+            correct_lines.push(evaluation.line);
         }
     }
 
-    print_correct_lines(correct_lines);
-
-    Ok(())
-}
-
-fn print_correct_lines(lines: Vec<&str>) {
-    for line in lines {
+    println!("\x1b[1;33mHOLA A TODOS!\x1b[0m BIENVENIDOS AL RGREP!");
+    for line in correct_lines {
         println!("{}", line);
     }
+
+    Ok(())
 }
 
 pub fn print_error(err: String) {
