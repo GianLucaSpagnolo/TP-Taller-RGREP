@@ -1,0 +1,4 @@
+El archivo ha sido abierto correctamente!
+Segunda linea
+
+test
