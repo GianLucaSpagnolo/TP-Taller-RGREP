@@ -10,8 +10,8 @@ use regex_val::RegexVal;
 
 #[derive(Debug, Clone)]
 pub struct RegexStep {
-    val: RegexVal,
-    rep: RegexRep,
+    pub val: RegexVal,
+    pub rep: RegexRep,
 }
 
 #[derive(Debug, Clone)]
@@ -50,37 +50,55 @@ impl TryFrom<&str> for Regex {
                     val: RegexVal::Literal(c),
                 }),
                 '*' => {
-                    if let Some(last) = steps.last_mut() {
-                        last.rep = RegexRep::Any;
-                    } else {
+                    if steps.is_empty() {
                         Some(RegexStep {
                             rep: RegexRep::Any,
                             val: RegexVal::Wildcard,
-                        });
+                        })
+                    } else {
+                        if let Some(last) = steps.last_mut() {
+                            last.rep = RegexRep::Any;
+                        }
+                        None
                     }
-                    None
                 }
                 '?' => {
-                    if let Some(last) = steps.last_mut() {
-                        last.rep = RegexRep::Range {
-                            min: Some(0),
-                            max: Some(1),
-                        };
+                    if steps.is_empty() {
+                        Some(RegexStep {
+                            rep: RegexRep::Range {
+                                min: Some(0),
+                                max: Some(1),
+                            },
+                            val: RegexVal::Wildcard,
+                        })
                     } else {
-                        return Err("Invalid regex: unexpected ? character");
+                        if let Some(last) = steps.last_mut() {
+                            last.rep = RegexRep::Range {
+                                min: Some(0),
+                                max: Some(1),
+                            };
+                        }
+                        None
                     }
-                    None
                 }
                 '+' => {
-                    if let Some(last) = steps.last_mut() {
-                        last.rep = RegexRep::Range {
-                            min: Some(1),
-                            max: None,
-                        };
+                    if steps.is_empty() {
+                        Some(RegexStep {
+                            rep: RegexRep::Range {
+                                min: Some(1),
+                                max: None,
+                            },
+                            val: RegexVal::Wildcard,
+                        })
                     } else {
-                        return Err("Invalid regex: unexpected + character");
+                        if let Some(last) = steps.last_mut() {
+                            last.rep = RegexRep::Range {
+                                min: Some(1),
+                                max: None,
+                            };
+                        }
+                        None
                     }
-                    None
                 }
                 '{' => {
                     if let Some(last) = steps.last_mut() {
@@ -132,8 +150,6 @@ impl TryFrom<&str> for Regex {
                         } else {
                             last.rep = RegexRep::Range { min, max };
                         }
-                    } else {
-                        return Err("Invalid regex: unexpected { character");
                     }
                     None
                 }
@@ -167,106 +183,151 @@ impl Regex {
         }
 
         let mut queue = VecDeque::from(self.steps);
-        let mut stack: Vec<EvaluatedStep> = Vec::new();
-        let mut index = 0;
+        let queue_size = queue.len();
+        let mut state = false;
 
-        'steps: while let Some(step) = queue.pop_front() {
-            //println!("{:?}", step.rep);
-            match step.rep {
-                RegexRep::Exact(n) => {
-                    let mut match_size = 0;
-                    for _ in 0..n {
-                        let size = step.val.matches(&value[index..]);
-
-                        if size == 0 {
-                            match backtrack(step, &mut stack, &mut queue) {
-                                Some(size) => {
-                                    index -= size;
-                                    continue 'steps;
-                                }
-                                None => {
-                                    return Ok(LineEvaluated {
-                                        result: false,
-                                        line: value.to_string(),
-                                    });
-                                }
-                            }
-                        } else {
-                            match_size += size;
-                            index += size;
-                        }
+        if queue_size == 1 && value.len() == 0 {
+            if let Some(step) = queue.pop_front() {
+                match step.val {
+                    RegexVal::Wildcard => {
+                        state = true;
                     }
-                    stack.push(EvaluatedStep {
-                        step: step,
-                        match_size,
-                        backtrackable: false,
-                    })
-                }
-                RegexRep::Any => {
-                    let mut keep_matching = true;
-                    while keep_matching {
-                        let match_size = step.val.matches(&value[index..]);
-
-                        if match_size != 0 {
-                            index += match_size;
-                            stack.push(EvaluatedStep {
-                                step: step.clone(),
-                                match_size,
-                                backtrackable: true,
-                            });
-                        } else {
-                            keep_matching = false;
-                        }
+                    _ => {
+                        queue.push_front(step);
                     }
-                }
-                RegexRep::Range { min, max } => {
-                    let mut match_size = 0;
-                    let mut count = 0;
-                    let mut keep_matching = true;
-                    while keep_matching {
-                        let size = step.val.matches(&value[index..]);
-
-                        if size == 0 {
-                            if let Some(min) = min {
-                                if count < min {
-                                    match backtrack(step, &mut stack, &mut queue) {
-                                        Some(size) => {
-                                            index -= size;
-                                            continue 'steps;
-                                        }
-                                        None => {
-                                            return Ok(LineEvaluated {
-                                                result: false,
-                                                line: value.to_string(),
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                            keep_matching = false;
-                        } else {
-                            match_size += size;
-                            index += size;
-                            count += 1;
-                        }
-
-                        if let Some(max) = max {
-                            if count >= max {
-                                keep_matching = false;
-                            }
-                        }
-                    }
-                    stack.push(EvaluatedStep {
-                        step: step,
-                        match_size,
-                        backtrackable: false,
-                    });
                 }
             }
         }
 
+        for char_index in 0..value.len() {
+            //println!("INDEX = {} STATE = {}", char_index, state);
+            let mut stack: Vec<EvaluatedStep> = Vec::new();
+            let mut index = char_index;
+
+            'steps: while let Some(step) = queue.pop_front() {
+                //println!("WHILEEE = index: {} step: {:?} value: {}", index, step, value);
+
+                match step.rep {
+                    RegexRep::Exact(n) => {
+                        let mut match_size = 0;
+                        for i in 0..n {
+                            let size = step.val.matches(&value[index..]);
+
+                            if size == 0 {
+                                match backtrack(step, &mut stack, &mut queue) {
+                                    Some(size) => {
+                                        index -= size;
+                                        continue 'steps;
+                                    }
+                                    None => {
+                                        break 'steps;
+                                    }
+                                }
+                            } else {
+                                if queue.is_empty() && i == n - 1 {
+                                    //println!("LIMPIO TODO");
+                                    state = true;
+                                    break 'steps;
+                                }
+                                match_size += size;
+                                index += size;
+                            }
+                        }
+                        stack.push(EvaluatedStep {
+                            step: step,
+                            match_size,
+                            backtrackable: false,
+                        })
+                    }
+                    RegexRep::Any => {
+                        let mut is_match = false;
+                        let mut keep_matching = true;
+                        while keep_matching {
+                            let match_size = step.val.matches(&value[index..]);
+
+                            if match_size != 0 {
+                                is_match = true;
+                                index += match_size;
+                                stack.push(EvaluatedStep {
+                                    step: step.clone(),
+                                    match_size,
+                                    backtrackable: true,
+                                });
+                            } else {
+                                keep_matching = false;
+                            }
+                        }
+
+                        if queue.is_empty() {
+                            state = true;
+                            break 'steps;
+                        }
+                        if !is_match {
+                            continue 'steps;
+                        }
+                    }
+                    RegexRep::Range { min, max } => {
+                        let mut match_size = 0;
+                        let mut count = 0;
+                        let mut keep_matching = true;
+                        while keep_matching {
+                            let size = step.val.matches(&value[index..]);
+
+                            if size == 0 {
+                                if let Some(min) = min {
+                                    if count < min {
+                                        match backtrack(step, &mut stack, &mut queue) {
+                                            Some(size) => {
+                                                index -= size;
+                                                continue 'steps;
+                                            }
+                                            None => {
+                                                break 'steps;
+                                            }
+                                        }
+                                    } else if min == 0 {
+                                        state = true;
+                                    }
+                                }
+                                keep_matching = false;
+                            } else {
+                                match_size += size;
+                                index += size;
+                                count += 1;
+                            }
+
+                            if let Some(max) = max {
+                                if count >= max {
+                                    keep_matching = false;
+                                }
+                            }
+                        }
+                        if queue.is_empty() {
+                            //println!("LIMPIO TODO");
+                            state = true;
+                            break 'steps;
+                        }
+
+                        stack.push(EvaluatedStep {
+                            step: step,
+                            match_size,
+                            backtrackable: false,
+                        });
+                    }
+                }
+            }
+
+            if !queue.is_empty() {
+                //println!("QUEUE_SIZE = {} QUEUE_LEN = {}", queue_size, queue.len());
+                queue.rotate_left(queue_size - queue.len());
+                //println!("QUEUEEEEEEEEE = {:?}", queue);
+            } else {
+                break;
+            }
+        }
+
         Ok(LineEvaluated {
-            result: true,
+            result: state,
             line: value.to_string(),
         })
     }
@@ -281,6 +342,7 @@ fn backtrack(
     next.push_front(current);
 
     while let Some(e) = evaluated.pop() {
+        //println!("BACKTRACK = step: {:?} back_size: {}", e, back_size);
         back_size += e.match_size;
         if e.backtrackable {
             return Some(back_size);
@@ -381,13 +443,13 @@ mod tests {
         Ok(())
     }
 
-    /*
     #[test]
     fn test_match_middle_literals() -> Result<(), &'static str> {
         let value = "abcdef";
 
         let regex = Regex::new("cde").unwrap();
 
+        println!("REGEX = {:?} VALUE = {}", regex, value);
         let line = regex.evaluate(value)?;
         assert_eq!(line.result, true);
 
@@ -405,7 +467,6 @@ mod tests {
 
         Ok(())
     }
-    */
 
     #[test]
     fn test_match_literal_and_point() -> Result<(), &'static str> {
@@ -433,9 +494,9 @@ mod tests {
 
     #[test]
     fn test_match_multiple_literal_and_point() -> Result<(), &'static str> {
-        let value = "abcdef";
+        let value = "abcdefghijk";
 
-        let regex = Regex::new("a.c..f").unwrap();
+        let regex = Regex::new("c..f..i").unwrap();
 
         let line = regex.evaluate(value)?;
         assert_eq!(line.result, true);
@@ -540,6 +601,18 @@ mod tests {
     }
 
     #[test]
+    fn test_match_single_point_and_asterisk() -> Result<(), &'static str> {
+        let value = "abcdefghij";
+
+        let regex = Regex::new(".*").unwrap();
+
+        let line = regex.evaluate(value)?;
+        assert_eq!(line.result, true);
+
+        Ok(())
+    }
+
+    #[test]
     fn test_match_point_and_asterisk_at_start() -> Result<(), &'static str> {
         let value = "abcdefghij";
 
@@ -600,14 +673,6 @@ mod tests {
     }
 
     #[test]
-    fn test_incorrect_question_mark() -> Result<(), &'static str> {
-        let regex = Regex::new("?cd").unwrap_err();
-        assert_eq!(regex, "Invalid regex: unexpected ? character");
-
-        Ok(())
-    }
-
-    #[test]
     fn test_match_single_plus() -> Result<(), &'static str> {
         let value = "abcdefghij";
 
@@ -627,14 +692,6 @@ mod tests {
 
         let line = regex.evaluate(value)?;
         assert_eq!(line.result, false);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_incorrect_plus() -> Result<(), &'static str> {
-        let regex = Regex::new("+cd").unwrap_err();
-        assert_eq!(regex, "Invalid regex: unexpected + character");
 
         Ok(())
     }
@@ -663,7 +720,7 @@ mod tests {
         Ok(())
     }
 
-    /*#[test]
+    #[test]
     fn test_match_middle_repetition() -> Result<(), &'static str> {
         let value = "abcccccdeeeeeefghij";
 
@@ -673,7 +730,93 @@ mod tests {
         assert_eq!(line.result, true);
 
         Ok(())
-    }*/
+    }
+
+    #[test]
+    fn test_match_only_plus() -> Result<(), &'static str> {
+        let value = "abcdefghij";
+
+        let regex = Regex::new("+").unwrap();
+
+        let line = regex.evaluate(value)?;
+        assert_eq!(line.result, true);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_match_only_point_and_plus() -> Result<(), &'static str> {
+        let value = "abcdefghij";
+
+        let regex = Regex::new(".+").unwrap();
+
+        let line = regex.evaluate(value)?;
+        assert_eq!(line.result, true);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_match_only_question_mark() -> Result<(), &'static str> {
+        let value = "abcdefghij";
+
+        let regex = Regex::new("?").unwrap();
+
+        let line = regex.evaluate(value)?;
+        assert_eq!(line.result, true);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_match_only_point_and_question_mark() -> Result<(), &'static str> {
+        let value = "abcdefghij";
+
+        let regex = Regex::new(".?").unwrap();
+
+        let line = regex.evaluate(value)?;
+        assert_eq!(line.result, true);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_match_empty_line() -> Result<(), &'static str> {
+        let value = "";
+
+        let regex1 = Regex::new("*").unwrap();
+        let regex2 = Regex::new("+").unwrap();
+        let regex3 = Regex::new("?").unwrap();
+
+        let line1 = regex1.evaluate(value)?;
+        let line2 = regex2.evaluate(value)?;
+        let line3 = regex3.evaluate(value)?;
+
+        assert_eq!(line1.result, true);
+        assert_eq!(line2.result, true);
+        assert_eq!(line3.result, true);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_match_start_with_repetition() -> Result<(), &'static str> {
+        let value = "testeo";
+
+        let regex1 = Regex::new("*esteo").unwrap();
+        let regex2 = Regex::new("+esteo").unwrap();
+        let regex3 = Regex::new("?esteo").unwrap();
+
+        let line1 = regex1.evaluate(value)?;
+        let line2 = regex2.evaluate(value)?;
+        let line3 = regex3.evaluate(value)?;
+
+        assert_eq!(line1.result, true);
+        assert_eq!(line2.result, false);
+        assert_eq!(line3.result, true);
+
+        Ok(())
+    }
 
     #[test]
     fn test_match_range_combination_with_start_and_end() -> Result<(), &'static str> {
@@ -716,6 +859,18 @@ mod tests {
         let value = "abcc33";
 
         let regex = Regex::new("abc{5}").unwrap();
+
+        let line = regex.evaluate(value)?;
+        assert_eq!(line.result, false);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_no_match_range_combination_exact_2() -> Result<(), &'static str> {
+        let value = "abcccccc33";
+
+        let regex = Regex::new("abc{5}3").unwrap();
 
         let line = regex.evaluate(value)?;
         assert_eq!(line.result, false);
@@ -770,4 +925,72 @@ mod tests {
 
         Ok(())
     }
+
+    /*
+    TESTS PARA OTRO MOMENTO
+    #[test]
+    fn test_match_only_ranged_expression() -> Result<(), &'static str> {
+        let value = "abcdefghij";
+
+        let regex1 = Regex::new("{3}").unwrap();
+        let regex2 = Regex::new("{,3}").unwrap();
+        let regex3 = Regex::new("{3,}").unwrap();
+        let regex4 = Regex::new("{3,5}").unwrap();
+
+        let line1 = regex1.evaluate(value)?;
+        let line2 = regex2.evaluate(value)?;
+        let line3 = regex3.evaluate(value)?;
+        let line4 = regex4.evaluate(value)?;
+
+        assert_eq!(line1.result, true);
+        assert_eq!(line2.result, true);
+        assert_eq!(line3.result, true);
+        assert_eq!(line4.result, true);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_match_empty_line_with_ranged_expression() -> Result<(), &'static str> {
+        let value = "";
+
+        let regex1 = Regex::new("{3}").unwrap();
+        let regex2 = Regex::new("{3,}").unwrap();
+        let regex3 = Regex::new("{,3}").unwrap();
+        let regex4 = Regex::new("{3,5}").unwrap();
+
+        let line1 = regex1.evaluate(value)?;
+        let line2 = regex2.evaluate(value)?;
+        let line3 = regex3.evaluate(value)?;
+        let line4 = regex4.evaluate(value)?;
+
+        assert_eq!(line1.result, true);
+        assert_eq!(line2.result, true);
+        assert_eq!(line3.result, true);
+        assert_eq!(line4.result, true);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_match_start_with_ranged_expression() -> Result<(), &'static str> {
+        let value = "testeo";
+
+        let regex1 = Regex::new("{5}esteo").unwrap();
+        let regex2 = Regex::new("{2,}esteo").unwrap();
+        let regex3 = Regex::new("{,2}esteo").unwrap();
+        let regex4 = Regex::new("{2,5}esteo").unwrap();
+
+        let line1 = regex1.evaluate(value)?;
+        let line2 = regex2.evaluate(value)?;
+        let line3 = regex3.evaluate(value)?;
+        let line4 = regex4.evaluate(value)?;
+
+        assert_eq!(line1.result, true);
+        assert_eq!(line2.result, true);
+        assert_eq!(line3.result, true);
+        assert_eq!(line4.result, true);
+
+        Ok(())
+    }*/
 }

@@ -9,9 +9,11 @@ pub enum RegexVal {
 
 impl RegexVal {
     pub fn matches(&self, value: &str) -> usize {
+        //println!("MATCH = val: {:?} value: {:?}", self, value);
         match self {
             RegexVal::Literal(l) => {
                 if value.chars().next() == Some(*l) {
+                    //println!("IS MATCH!");
                     l.len_utf8()
                 } else {
                     0
