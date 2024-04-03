@@ -200,12 +200,10 @@ impl Regex {
         }
 
         for char_index in 0..value.len() {
-            //println!("INDEX = {} STATE = {}", char_index, state);
             let mut stack: Vec<EvaluatedStep> = Vec::new();
             let mut index = char_index;
 
             'steps: while let Some(step) = queue.pop_front() {
-                //println!("WHILEEE = index: {} step: {:?} value: {}", index, step, value);
 
                 match step.rep {
                     RegexRep::Exact(n) => {
@@ -225,7 +223,6 @@ impl Regex {
                                 }
                             } else {
                                 if queue.is_empty() && i == n - 1 {
-                                    //println!("LIMPIO TODO");
                                     state = true;
                                     break 'steps;
                                 }
@@ -303,7 +300,6 @@ impl Regex {
                             }
                         }
                         if queue.is_empty() {
-                            //println!("LIMPIO TODO");
                             state = true;
                             break 'steps;
                         }
@@ -318,9 +314,7 @@ impl Regex {
             }
 
             if !queue.is_empty() {
-                //println!("QUEUE_SIZE = {} QUEUE_LEN = {}", queue_size, queue.len());
                 queue.rotate_left(queue_size - queue.len());
-                //println!("QUEUEEEEEEEEE = {:?}", queue);
             } else {
                 break;
             }
@@ -342,7 +336,6 @@ fn backtrack(
     next.push_front(current);
 
     while let Some(e) = evaluated.pop() {
-        //println!("BACKTRACK = step: {:?} back_size: {}", e, back_size);
         back_size += e.match_size;
         if e.backtrackable {
             return Some(back_size);
