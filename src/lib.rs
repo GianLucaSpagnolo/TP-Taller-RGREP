@@ -1,10 +1,12 @@
 pub mod regex;
+pub mod program_error;
 
 use regex::Regex;
+use program_error::ProgramError;
 
-use std::error::Error;
 use std::fs;
 use std::io::Write;
+use std::error::Error;
 
 #[derive(Debug)]
 pub struct Arguments {
@@ -13,21 +15,21 @@ pub struct Arguments {
 }
 
 impl Arguments {
-    pub fn new(mut args: impl Iterator<Item = String>) -> Result<Arguments, &'static str> {
+    pub fn new(mut args: impl Iterator<Item = String>) -> Result<Arguments, ProgramError> {
         args.next();
 
         let regex = match args.next() {
             Some(arg) => arg,
-            None => return Err("Invalid arguments: regex and path missing"),
+            None => return Err(ProgramError::ArgumentMissing),
         };
 
         let path = match args.next() {
             Some(arg) => arg,
-            None => return Err("Invalid arguments: path missing"),
+            None => return Err(ProgramError::PathMissing),
         };
 
         if args.next().is_some() {
-            return Err("Invalid amount of arguments");
+            return Err(ProgramError::InvalidAmountOfArguments);
         }
 
         Ok(Arguments { regex, path })
@@ -48,7 +50,7 @@ pub fn run_rgrep(arguments: Arguments) -> Result<(), Box<dyn Error>> {
         }
     }
 
-    println!("\x1b[1;33mHOLA A TODOS!\x1b[0m BIENVENIDOS AL RGREP!");
+    //println!("\x1b[1;33mHOLA A TODOS!\x1b[0m BIENVENIDOS AL RGREP!");
     for line in correct_lines {
         println!("{}", line);
     }
@@ -78,18 +80,18 @@ mod tests {
     fn verify_incorrect_arguments() {
         let binding1 = { vec!["rgrep", "regex"] };
         let args1 = binding1.iter().map(|s| s.to_string());
-        let arguments1 = Arguments::new(args1).unwrap_err();
-        assert_eq!(arguments1, "Invalid arguments: path missing");
+        let return1 = Arguments::new(args1).unwrap_err();
+        assert_eq!(return1.message(), ProgramError::PathMissing.message());
 
         let binding2 = { vec!["rgrep", "regex", "path", "extra"] };
         let args2 = binding2.iter().map(|s| s.to_string());
-        let arguments2 = Arguments::new(args2).unwrap_err();
-        assert_eq!(arguments2, "Invalid amount of arguments");
+        let return2 = Arguments::new(args2).unwrap_err();
+        assert_eq!(return2.message(), ProgramError::InvalidAmountOfArguments.message());
 
         let binding3 = { vec!["rgrep"] };
         let args3 = binding3.iter().map(|s| s.to_string());
-        let arguments3 = Arguments::new(args3).unwrap_err();
-        assert_eq!(arguments3, "Invalid arguments: regex and path missing");
+        let return3 = Arguments::new(args3).unwrap_err();
+        assert_eq!(return3.message(), ProgramError::ArgumentMissing.message());
     }
 
     #[test]
@@ -99,5 +101,14 @@ mod tests {
         let arguments = Arguments::new(args).unwrap();
         let result = run_rgrep(arguments).unwrap_err();
         assert_eq!(result.to_string(), "No such file or directory (os error 2)");
+    }
+
+    #[test]
+    fn try_valid_file_relative_path() {
+        let binding = { vec!["rgrep", "regex", "res/test0.txt"] };
+        let args = binding.iter().map(|s| s.to_string());
+        let arguments = Arguments::new(args).unwrap();
+        let result = run_rgrep(arguments).is_ok();
+        assert_eq!(result, true);
     }
 }

@@ -1,5 +1,5 @@
 // WELCOME TO RGREP: RUSTIC GREP
-
+// Gian Luca Spagnolo - 108072
 use std::env;
 
 use rgrep::print_error;
@@ -16,7 +16,7 @@ fn main() {
             }
         }
         Err(err) => {
-            print_error(err.to_string());
+            print_error(err.message().to_string());
         }
     }
 }

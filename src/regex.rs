@@ -3,10 +3,12 @@ use std::collections::VecDeque;
 pub mod regex_class;
 pub mod regex_rep;
 pub mod regex_val;
+pub mod regex_error;
 
 //use regex_class::RegexClass;
 use regex_rep::RegexRep;
 use regex_val::RegexVal;
+use regex_error::RegexError;
 
 #[derive(Debug, Clone)]
 pub struct RegexStep {
@@ -109,7 +111,7 @@ impl TryFrom<&str> for Regex {
                         let mut is_end = false;
                         let mut is_invalid = false;
 
-                        while let Some(c) = chars_iter.next() {
+                        for c in chars_iter.by_ref() {
                             match c {
                                 '0'..='9' => {
                                     count = count * 10 + c.to_digit(10).unwrap() as usize;
@@ -138,7 +140,7 @@ impl TryFrom<&str> for Regex {
                         }
 
                         if is_invalid || !is_end {
-                            return Err("Invalid regex: invalid range");
+                            return Err(RegexError::InvalidRange.message());
                         }
 
                         if count > 0 {
@@ -158,9 +160,9 @@ impl TryFrom<&str> for Regex {
                         rep: RegexRep::Exact(1),
                         val: RegexVal::Literal(literal),
                     }),
-                    None => return Err("Invalid regex: invalid backslash"),
+                    None => return Err(RegexError::InvalidBackslash.message()),
                 },
-                _ => return Err("Invalid character in regex"),
+                _ => return Err(RegexError::InvalidCharacter.message()),
             };
 
             if let Some(s) = step {
@@ -186,7 +188,7 @@ impl Regex {
         let queue_size = queue.len();
         let mut state = false;
 
-        if queue_size == 1 && value.len() == 0 {
+        if queue_size == 1 && value.is_empty() {
             if let Some(step) = queue.pop_front() {
                 match step.val {
                     RegexVal::Wildcard => {
@@ -231,7 +233,7 @@ impl Regex {
                             }
                         }
                         stack.push(EvaluatedStep {
-                            step: step,
+                            step,
                             match_size,
                             backtrackable: false,
                         })
@@ -305,7 +307,7 @@ impl Regex {
                         }
 
                         stack.push(EvaluatedStep {
-                            step: step,
+                            step,
                             match_size,
                             backtrackable: false,
                         });
@@ -609,7 +611,7 @@ mod tests {
     fn test_match_point_and_asterisk_at_start() -> Result<(), &'static str> {
         let value = "abcdefghij";
 
-        let regex = Regex::new(".*").unwrap();
+        let regex = Regex::new(".*abcd").unwrap();
 
         let line = regex.evaluate(value)?;
         assert_eq!(line.result, true);
@@ -837,11 +839,15 @@ mod tests {
 
     #[test]
     fn test_match_range_combination_exact() -> Result<(), &'static str> {
-        let value = "abccccc33";
+        let value1 = "abccccc33";
+        let value2 = "aaa";
 
-        let regex = Regex::new("abc{5}").unwrap();
+        let regex1 = Regex::new("abc{5}").unwrap();
+        let regex2 = Regex::new("a{3}").unwrap();
 
-        let line = regex.evaluate(value)?;
+        let line = regex1.evaluate(value1)?;
+        assert_eq!(line.result, true);
+        let line = regex2.evaluate(value2)?;
         assert_eq!(line.result, true);
 
         Ok(())

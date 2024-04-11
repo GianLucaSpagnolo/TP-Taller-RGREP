@@ -11,7 +11,7 @@ impl RegexVal {
     pub fn matches(&self, value: &str) -> usize {
         match self {
             RegexVal::Literal(l) => {
-                if value.chars().next() == Some(*l) {
+                if value.starts_with(*l) {
                     l.len_utf8()
                 } else {
                     0
