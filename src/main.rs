@@ -3,6 +3,7 @@
 use std::env;
 
 use rgrep::print_error;
+use rgrep::read_file;
 use rgrep::run_rgrep;
 use rgrep::Arguments;
 
@@ -11,12 +12,17 @@ fn main() {
 
     match Arguments::new(args) {
         Ok(arguments) => {
-            if let Err(err) = run_rgrep(arguments) {
-                print_error(err.to_string());
+            let file_text = read_file(arguments.path);
+            if let Err(err) = file_text {
+                print_error(err.message());
+            } else if let Ok(text) = file_text {
+                if let Err(err) = run_rgrep(arguments.regex, text) {
+                    print_error(&err);
+                }
             }
         }
         Err(err) => {
-            print_error(err.message().to_string());
+            print_error(err.message());
         }
     }
 }

@@ -36,12 +36,10 @@ impl Arguments {
     }
 }
 
-pub fn run_rgrep(arguments: Arguments) -> Result<(), Box<dyn Error>> {
-    let text = fs::read_to_string(arguments.path)?;
+pub fn run_rgrep(regex: String, text: String) -> Result<(), String> {
     let iter = text.lines();
     let mut correct_lines: Vec<String> = Vec::new();
-
-    let regex = Regex::new(&arguments.regex)?;
+    let regex = Regex::new(&regex)?;
 
     for line in iter {
         let evaluation = regex.clone().evaluate(line)?;
@@ -58,7 +56,23 @@ pub fn run_rgrep(arguments: Arguments) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-pub fn print_error(err: String) {
+pub fn read_file(path: String) -> Result<String, ProgramError> {
+    let text = fs::read_to_string(path);
+    match text {
+        Ok(text) => Ok(text),
+        Err(err) => Err(process_error(Box::new(err))),
+    }
+}
+
+fn process_error(err: Box<dyn Error>) -> ProgramError {
+    match err {
+        err if err.to_string().contains("No such file or directory") => ProgramError::InvalidFilePath,
+        err if err.to_string().contains("stream did not contain valid UTF-8") => ProgramError::InvalidFileFormat,
+        _ => ProgramError::ErrorWhileReadingFile,
+    }
+}
+
+pub fn print_error(err: &str) {
     writeln!(&mut std::io::stderr(), "rgrep: {}", err).unwrap_or_else(|_| ());
 }
 
@@ -96,11 +110,17 @@ mod tests {
 
     #[test]
     fn try_invalid_file() {
-        let binding = { vec!["rgrep", "regex", "res/test-1.txt"] };
-        let args = binding.iter().map(|s| s.to_string());
-        let arguments = Arguments::new(args).unwrap();
-        let result = run_rgrep(arguments).unwrap_err();
-        assert_eq!(result.to_string(), "No such file or directory (os error 2)");
+        let binding1 = { vec!["rgrep", "regex", "res/test-1.txt"] };
+        let args1 = binding1.iter().map(|s| s.to_string());
+        let arguments1 = Arguments::new(args1).unwrap();
+        let text_read1 = read_file(arguments1.path).unwrap_err();
+        assert_eq!(text_read1.message(), ProgramError::InvalidFilePath.message());
+
+        let binding2 = { vec!["rgrep", "regex", "res/invalid_format.txt"] };
+        let args2 = binding2.iter().map(|s| s.to_string());
+        let arguments2 = Arguments::new(args2).unwrap();
+        let text_read2 = read_file(arguments2.path).unwrap_err();
+        assert_eq!(text_read2.message(), ProgramError::InvalidFileFormat.message());
     }
 
     #[test]
@@ -108,7 +128,8 @@ mod tests {
         let binding = { vec!["rgrep", "regex", "res/test0.txt"] };
         let args = binding.iter().map(|s| s.to_string());
         let arguments = Arguments::new(args).unwrap();
-        let result = run_rgrep(arguments).is_ok();
+        let text_read = read_file(arguments.path).unwrap();
+        let result = run_rgrep(arguments.regex, text_read).is_ok();
         assert_eq!(result, true);
     }
 }

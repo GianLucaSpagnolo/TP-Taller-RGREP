@@ -181,7 +181,7 @@ impl Regex {
 
     pub fn evaluate(self, value: &str) -> Result<LineEvaluated, &str> {
         if !value.is_ascii() {
-            return Err("Non-ascii characters in input");
+            return Err(RegexError::NoAsciiCharacter.message());
         }
 
         let mut queue = VecDeque::from(self.steps);
@@ -374,7 +374,7 @@ mod tests {
         assert!(matches.is_err());
         assert_eq!(
             matches.unwrap_err().to_string(),
-            "Non-ascii characters in input"
+            RegexError::NoAsciiCharacter.message()
         );
     }
 
@@ -444,7 +444,6 @@ mod tests {
 
         let regex = Regex::new("cde").unwrap();
 
-        println!("REGEX = {:?} VALUE = {}", regex, value);
         let line = regex.evaluate(value)?;
         assert_eq!(line.result, true);
 
