@@ -1,4 +1,4 @@
-#[derive (Debug)]
+#[derive(Debug)]
 pub enum RegexError {
     InvalidRange,
     InvalidBackslash,

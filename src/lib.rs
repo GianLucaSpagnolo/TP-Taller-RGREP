@@ -1,12 +1,12 @@
-pub mod regex;
 pub mod program_error;
+pub mod regex;
 
-use regex::Regex;
 use program_error::ProgramError;
+use regex::Regex;
 
+use std::error::Error;
 use std::fs;
 use std::io::Write;
-use std::error::Error;
 
 #[derive(Debug)]
 pub struct Arguments {
@@ -66,8 +66,15 @@ pub fn read_file(path: String) -> Result<String, ProgramError> {
 
 fn process_error(err: Box<dyn Error>) -> ProgramError {
     match err {
-        err if err.to_string().contains("No such file or directory") => ProgramError::InvalidFilePath,
-        err if err.to_string().contains("stream did not contain valid UTF-8") => ProgramError::InvalidFileFormat,
+        err if err.to_string().contains("No such file or directory") => {
+            ProgramError::InvalidFilePath
+        }
+        err if err
+            .to_string()
+            .contains("stream did not contain valid UTF-8") =>
+        {
+            ProgramError::InvalidFileFormat
+        }
         _ => ProgramError::ErrorWhileReadingFile,
     }
 }
@@ -100,7 +107,10 @@ mod tests {
         let binding2 = { vec!["rgrep", "regex", "path", "extra"] };
         let args2 = binding2.iter().map(|s| s.to_string());
         let return2 = Arguments::new(args2).unwrap_err();
-        assert_eq!(return2.message(), ProgramError::InvalidAmountOfArguments.message());
+        assert_eq!(
+            return2.message(),
+            ProgramError::InvalidAmountOfArguments.message()
+        );
 
         let binding3 = { vec!["rgrep"] };
         let args3 = binding3.iter().map(|s| s.to_string());
@@ -114,13 +124,19 @@ mod tests {
         let args1 = binding1.iter().map(|s| s.to_string());
         let arguments1 = Arguments::new(args1).unwrap();
         let text_read1 = read_file(arguments1.path).unwrap_err();
-        assert_eq!(text_read1.message(), ProgramError::InvalidFilePath.message());
+        assert_eq!(
+            text_read1.message(),
+            ProgramError::InvalidFilePath.message()
+        );
 
         let binding2 = { vec!["rgrep", "regex", "res/invalid_format.txt"] };
         let args2 = binding2.iter().map(|s| s.to_string());
         let arguments2 = Arguments::new(args2).unwrap();
         let text_read2 = read_file(arguments2.path).unwrap_err();
-        assert_eq!(text_read2.message(), ProgramError::InvalidFileFormat.message());
+        assert_eq!(
+            text_read2.message(),
+            ProgramError::InvalidFileFormat.message()
+        );
     }
 
     #[test]
@@ -130,6 +146,6 @@ mod tests {
         let arguments = Arguments::new(args).unwrap();
         let text_read = read_file(arguments.path).unwrap();
         let result = run_rgrep(arguments.regex, text_read).is_ok();
-        assert_eq!(result, true);
+        assert!(result);
     }
 }
