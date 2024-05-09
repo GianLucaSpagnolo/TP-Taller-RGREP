@@ -305,10 +305,19 @@ impl Regex {
                             break 'steps;
                         }
 
+                        let mut backtrack_status = false;
+                        if let Some(0) = min {
+                            backtrack_status = true;
+                        } else if let Some(max) = max {
+                            if count < max {
+                                backtrack_status = true;
+                            }
+                        }
+
                         stack.push(EvaluatedStep {
                             step,
                             match_size,
-                            backtrackable: false,
+                            backtrackable: backtrack_status,
                         });
                     }
                 }
@@ -646,6 +655,19 @@ mod tests {
         let value = "abcdefghij";
 
         let regex = Regex::new("abcr?").unwrap();
+
+        let line = regex.evaluate(value)?;
+        assert!(line.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_match_question_mark_and_point() -> Result<(), &'static str> {
+        let value = "abd";
+
+        let regex = Regex::new("ab.?d").unwrap();
+        println!("{:?}", regex);
 
         let line = regex.evaluate(value)?;
         assert!(line.result);
