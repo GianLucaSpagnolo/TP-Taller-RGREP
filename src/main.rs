@@ -2,10 +2,8 @@
 // Gian Luca Spagnolo - 108072
 use std::env;
 
-use rgrep::print_error;
-use rgrep::read_file;
-use rgrep::run_rgrep;
 use rgrep::Arguments;
+use rgrep::*;
 
 fn main() {
     let args = env::args_os().map(|arg| arg.to_string_lossy().into_owned());
@@ -13,11 +11,16 @@ fn main() {
     match Arguments::new(args) {
         Ok(arguments) => {
             let file_text = read_file(arguments.path);
+
             if let Err(err) = file_text {
                 print_error(err.message());
             } else if let Ok(text) = file_text {
-                if let Err(err) = run_rgrep(arguments.regex, text) {
-                    print_error(&err);
+                let program_output = run_rgrep(arguments.regex, text);
+
+                if let Ok(output) = program_output {
+                    print_lines(output);
+                } else if let Err(error) = program_output {
+                    print_error(&error);
                 }
             }
         }

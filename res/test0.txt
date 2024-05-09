@@ -1,3 +1,6 @@
 El archivo ha sido abierto correctamente!
 Segunda linea
 regex
+no regex
+multiple regex
+reex

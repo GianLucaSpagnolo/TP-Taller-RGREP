@@ -36,7 +36,7 @@ impl Arguments {
     }
 }
 
-pub fn run_rgrep(regex: String, text: String) -> Result<(), String> {
+pub fn run_rgrep(regex: String, text: String) -> Result<Vec<String>, String> {
     let iter = text.lines();
     let mut correct_lines: Vec<String> = Vec::new();
     let regex = Regex::new(&regex)?;
@@ -48,12 +48,13 @@ pub fn run_rgrep(regex: String, text: String) -> Result<(), String> {
         }
     }
 
-    //println!("\x1b[1;33mHOLA A TODOS!\x1b[0m BIENVENIDOS AL RGREP!");
-    for line in correct_lines {
+    Ok(correct_lines)
+}
+
+pub fn print_lines(lines: Vec<String>) {
+    for line in lines {
         println!("{}", line);
     }
-
-    Ok(())
 }
 
 pub fn read_file(path: String) -> Result<String, ProgramError> {
