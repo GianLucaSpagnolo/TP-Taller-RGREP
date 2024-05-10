@@ -1,4 +1,6 @@
 El archivo ha sido abierto correctamente!
 Segunda linea
-
-test
+regex
+no regex
+multiple regex
+reex

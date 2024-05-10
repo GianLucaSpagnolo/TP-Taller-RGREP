@@ -1,5 +1,7 @@
+pub mod program_error;
 pub mod regex;
 
+use program_error::ProgramError;
 use regex::Regex;
 
 use std::error::Error;
@@ -13,50 +15,97 @@ pub struct Arguments {
 }
 
 impl Arguments {
-    pub fn new(mut args: impl Iterator<Item = String>) -> Result<Arguments, &'static str> {
+    pub fn new(mut args: impl Iterator<Item = String>) -> Result<Arguments, ProgramError> {
         args.next();
 
         let regex = match args.next() {
             Some(arg) => arg,
-            None => return Err("Invalid arguments: regex and path missing"),
+            None => return Err(ProgramError::ArgumentMissing),
         };
 
         let path = match args.next() {
             Some(arg) => arg,
-            None => return Err("Invalid arguments: path missing"),
+            None => return Err(ProgramError::PathMissing),
         };
 
         if args.next().is_some() {
-            return Err("Invalid amount of arguments");
+            return Err(ProgramError::InvalidAmountOfArguments);
         }
 
         Ok(Arguments { regex, path })
     }
 }
 
-pub fn run_rgrep(arguments: Arguments) -> Result<(), Box<dyn Error>> {
-    let text = fs::read_to_string(arguments.path)?;
-    let iter = text.lines();
+pub fn run_rgrep(regex_str: String, text: String) -> Result<Vec<String>, String> {
+    let iter = text.split('\n');
     let mut correct_lines: Vec<String> = Vec::new();
 
-    let regex = Regex::new(&arguments.regex)?;
+    let regex_vec = regex_str.split('|');
+    let mut bad_regex = "".to_string();
+    let mut regex_temp;
+    'regex: for mut regex in regex_vec {
+        if regex.ends_with('\\') {
+            bad_regex = regex.to_string();
+            continue 'regex;
+        }
 
-    for line in iter {
-        let evaluation = regex.clone().evaluate(line)?;
-        if evaluation.result {
-            correct_lines.push(evaluation.line);
+        if !bad_regex.is_empty() {
+            regex_temp = regex.to_string();
+            regex_temp.insert(0, '|');
+            regex_temp.insert_str(0, &bad_regex);
+            regex = &regex_temp;
+            bad_regex = "".to_string();
+        }
+
+        let regex = Regex::new(regex)?;
+        let mut counter = 0;
+
+        for line in iter.clone() {
+            if correct_lines.contains(&line.to_string()) {
+                counter += 1;
+            } else {
+                let evaluation = regex.clone().evaluate(line)?;
+                if evaluation.result {
+                    correct_lines.insert(counter, evaluation.line);
+                    counter += 1;
+                }
+            }
         }
     }
 
-    println!("\x1b[1;33mHOLA A TODOS!\x1b[0m BIENVENIDOS AL RGREP!");
-    for line in correct_lines {
-        println!("{}", line);
-    }
-
-    Ok(())
+    Ok(correct_lines)
 }
 
-pub fn print_error(err: String) {
+pub fn print_lines(lines: Vec<String>) {
+    for line in lines {
+        println!("{}", line);
+    }
+}
+
+pub fn read_file(path: String) -> Result<String, ProgramError> {
+    let text = fs::read_to_string(path);
+    match text {
+        Ok(text) => Ok(text),
+        Err(err) => Err(process_error(Box::new(err))),
+    }
+}
+
+fn process_error(err: Box<dyn Error>) -> ProgramError {
+    match err {
+        err if err.to_string().contains("No such file or directory") => {
+            ProgramError::InvalidFilePath
+        }
+        err if err
+            .to_string()
+            .contains("stream did not contain valid UTF-8") =>
+        {
+            ProgramError::InvalidFileFormat
+        }
+        _ => ProgramError::ErrorWhileReadingFile,
+    }
+}
+
+pub fn print_error(err: &str) {
     writeln!(&mut std::io::stderr(), "rgrep: {}", err).unwrap_or_else(|_| ());
 }
 
@@ -78,26 +127,51 @@ mod tests {
     fn verify_incorrect_arguments() {
         let binding1 = { vec!["rgrep", "regex"] };
         let args1 = binding1.iter().map(|s| s.to_string());
-        let arguments1 = Arguments::new(args1).unwrap_err();
-        assert_eq!(arguments1, "Invalid arguments: path missing");
+        let return1 = Arguments::new(args1).unwrap_err();
+        assert_eq!(return1.message(), ProgramError::PathMissing.message());
 
         let binding2 = { vec!["rgrep", "regex", "path", "extra"] };
         let args2 = binding2.iter().map(|s| s.to_string());
-        let arguments2 = Arguments::new(args2).unwrap_err();
-        assert_eq!(arguments2, "Invalid amount of arguments");
+        let return2 = Arguments::new(args2).unwrap_err();
+        assert_eq!(
+            return2.message(),
+            ProgramError::InvalidAmountOfArguments.message()
+        );
 
         let binding3 = { vec!["rgrep"] };
         let args3 = binding3.iter().map(|s| s.to_string());
-        let arguments3 = Arguments::new(args3).unwrap_err();
-        assert_eq!(arguments3, "Invalid arguments: regex and path missing");
+        let return3 = Arguments::new(args3).unwrap_err();
+        assert_eq!(return3.message(), ProgramError::ArgumentMissing.message());
     }
 
     #[test]
     fn try_invalid_file() {
-        let binding = { vec!["rgrep", "regex", "res/test-1.txt"] };
+        let binding1 = { vec!["rgrep", "regex", "res/test-1.txt"] };
+        let args1 = binding1.iter().map(|s| s.to_string());
+        let arguments1 = Arguments::new(args1).unwrap();
+        let text_read1 = read_file(arguments1.path).unwrap_err();
+        assert_eq!(
+            text_read1.message(),
+            ProgramError::InvalidFilePath.message()
+        );
+
+        let binding2 = { vec!["rgrep", "regex", "res/invalid_format.txt"] };
+        let args2 = binding2.iter().map(|s| s.to_string());
+        let arguments2 = Arguments::new(args2).unwrap();
+        let text_read2 = read_file(arguments2.path).unwrap_err();
+        assert_eq!(
+            text_read2.message(),
+            ProgramError::InvalidFileFormat.message()
+        );
+    }
+
+    #[test]
+    fn try_valid_file_relative_path() {
+        let binding = { vec!["rgrep", "regex", "res/test0.txt"] };
         let args = binding.iter().map(|s| s.to_string());
         let arguments = Arguments::new(args).unwrap();
-        let result = run_rgrep(arguments).unwrap_err();
-        assert_eq!(result.to_string(), "No such file or directory (os error 2)");
+        let text_read = read_file(arguments.path).unwrap();
+        let result = run_rgrep(arguments.regex, text_read).is_ok();
+        assert!(result);
     }
 }

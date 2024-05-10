@@ -1,10 +1,12 @@
 use std::collections::VecDeque;
 
 pub mod regex_class;
+pub mod regex_error;
 pub mod regex_rep;
 pub mod regex_val;
 
 //use regex_class::RegexClass;
+use regex_error::RegexError;
 use regex_rep::RegexRep;
 use regex_val::RegexVal;
 
@@ -109,7 +111,7 @@ impl TryFrom<&str> for Regex {
                         let mut is_end = false;
                         let mut is_invalid = false;
 
-                        while let Some(c) = chars_iter.next() {
+                        for c in chars_iter.by_ref() {
                             match c {
                                 '0'..='9' => {
                                     count = count * 10 + c.to_digit(10).unwrap() as usize;
@@ -138,7 +140,7 @@ impl TryFrom<&str> for Regex {
                         }
 
                         if is_invalid || !is_end {
-                            return Err("Invalid regex: invalid range");
+                            return Err(RegexError::InvalidRange.message());
                         }
 
                         if count > 0 {
@@ -158,9 +160,9 @@ impl TryFrom<&str> for Regex {
                         rep: RegexRep::Exact(1),
                         val: RegexVal::Literal(literal),
                     }),
-                    None => return Err("Invalid regex: invalid backslash"),
+                    None => return Err(RegexError::InvalidBackslash.message()),
                 },
-                _ => return Err("Invalid character in regex"),
+                _ => return Err(RegexError::InvalidCharacter.message()),
             };
 
             if let Some(s) = step {
@@ -179,14 +181,14 @@ impl Regex {
 
     pub fn evaluate(self, value: &str) -> Result<LineEvaluated, &str> {
         if !value.is_ascii() {
-            return Err("Non-ascii characters in input");
+            return Err(RegexError::NoAsciiCharacter.message());
         }
 
         let mut queue = VecDeque::from(self.steps);
         let queue_size = queue.len();
         let mut state = false;
 
-        if queue_size == 1 && value.len() == 0 {
+        if queue_size == 1 && value.is_empty() {
             if let Some(step) = queue.pop_front() {
                 match step.val {
                     RegexVal::Wildcard => {
@@ -204,7 +206,6 @@ impl Regex {
             let mut index = char_index;
 
             'steps: while let Some(step) = queue.pop_front() {
-
                 match step.rep {
                     RegexRep::Exact(n) => {
                         let mut match_size = 0;
@@ -231,7 +232,7 @@ impl Regex {
                             }
                         }
                         stack.push(EvaluatedStep {
-                            step: step,
+                            step,
                             match_size,
                             backtrackable: false,
                         })
@@ -304,10 +305,19 @@ impl Regex {
                             break 'steps;
                         }
 
+                        let mut backtrack_status = false;
+                        if let Some(0) = min {
+                            backtrack_status = true;
+                        } else if let Some(max) = max {
+                            if count < max {
+                                backtrack_status = true;
+                            }
+                        }
+
                         stack.push(EvaluatedStep {
-                            step: step,
+                            step,
                             match_size,
-                            backtrackable: false,
+                            backtrackable: backtrack_status,
                         });
                     }
                 }
@@ -359,7 +369,7 @@ mod tests {
         let matches = regex.evaluate(value);
         assert!(matches.is_ok());
         let line = matches.unwrap();
-        assert_eq!(line.result, true);
+        assert!(line.result);
     }
 
     #[test]
@@ -372,7 +382,7 @@ mod tests {
         assert!(matches.is_err());
         assert_eq!(
             matches.unwrap_err().to_string(),
-            "Non-ascii characters in input"
+            RegexError::NoAsciiCharacter.message()
         );
     }
 
@@ -383,7 +393,7 @@ mod tests {
         let regex = Regex::new(".").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -395,7 +405,7 @@ mod tests {
         let regex = Regex::new("...").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -407,7 +417,7 @@ mod tests {
         let regex = Regex::new("....").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, false);
+        assert!(!line.result);
 
         Ok(())
     }
@@ -419,7 +429,7 @@ mod tests {
         let regex = Regex::new("a").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -431,7 +441,7 @@ mod tests {
         let regex = Regex::new("abc").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -442,9 +452,8 @@ mod tests {
 
         let regex = Regex::new("cde").unwrap();
 
-        println!("REGEX = {:?} VALUE = {}", regex, value);
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -456,7 +465,7 @@ mod tests {
         let regex = Regex::new("ce").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, false);
+        assert!(!line.result);
 
         Ok(())
     }
@@ -468,7 +477,7 @@ mod tests {
         let regex = Regex::new("a.c").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -480,7 +489,7 @@ mod tests {
         let regex = Regex::new("a.d").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, false);
+        assert!(!line.result);
 
         Ok(())
     }
@@ -492,7 +501,7 @@ mod tests {
         let regex = Regex::new("c..f..i").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -504,7 +513,7 @@ mod tests {
         let regex = Regex::new("ab.*e").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -516,7 +525,7 @@ mod tests {
         let regex = Regex::new("ab.*h").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, false);
+        assert!(!line.result);
 
         Ok(())
     }
@@ -528,7 +537,7 @@ mod tests {
         let regex = Regex::new("ab.*c.*f").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -540,7 +549,7 @@ mod tests {
         let regex = Regex::new("ab.*c.*f").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, false);
+        assert!(!line.result);
 
         Ok(())
     }
@@ -552,7 +561,7 @@ mod tests {
         let regex = Regex::new("ab1*").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -564,7 +573,7 @@ mod tests {
         let regex = Regex::new("ab2*").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -576,7 +585,7 @@ mod tests {
         let regex = Regex::new("ab2*g*3*").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -588,7 +597,7 @@ mod tests {
         let regex = Regex::new("*").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -600,7 +609,7 @@ mod tests {
         let regex = Regex::new(".*").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -609,10 +618,10 @@ mod tests {
     fn test_match_point_and_asterisk_at_start() -> Result<(), &'static str> {
         let value = "abcdefghij";
 
-        let regex = Regex::new(".*").unwrap();
+        let regex = Regex::new(".*abcd").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -624,7 +633,7 @@ mod tests {
         let regex = Regex::new(".*fgh").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -636,7 +645,7 @@ mod tests {
         let regex = Regex::new("abcd?").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -648,7 +657,20 @@ mod tests {
         let regex = Regex::new("abcr?").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_match_question_mark_and_point() -> Result<(), &'static str> {
+        let value = "abd";
+
+        let regex = Regex::new("ab.?d").unwrap();
+        println!("{:?}", regex);
+
+        let line = regex.evaluate(value)?;
+        assert!(line.result);
 
         Ok(())
     }
@@ -660,7 +682,7 @@ mod tests {
         let regex = Regex::new("abc?de.g.*").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -672,7 +694,7 @@ mod tests {
         let regex = Regex::new("abcd+").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -684,7 +706,7 @@ mod tests {
         let regex = Regex::new("abce+").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, false);
+        assert!(!line.result);
 
         Ok(())
     }
@@ -696,7 +718,7 @@ mod tests {
         let regex = Regex::new("abcd+").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -708,7 +730,7 @@ mod tests {
         let regex = Regex::new("abc?de.g.*l+").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -720,7 +742,7 @@ mod tests {
         let regex = Regex::new("c*de+fg.i?").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -732,7 +754,7 @@ mod tests {
         let regex = Regex::new("+").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -744,7 +766,7 @@ mod tests {
         let regex = Regex::new(".+").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -756,7 +778,7 @@ mod tests {
         let regex = Regex::new("?").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -768,7 +790,7 @@ mod tests {
         let regex = Regex::new(".?").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -785,9 +807,9 @@ mod tests {
         let line2 = regex2.evaluate(value)?;
         let line3 = regex3.evaluate(value)?;
 
-        assert_eq!(line1.result, true);
-        assert_eq!(line2.result, true);
-        assert_eq!(line3.result, true);
+        assert!(line1.result);
+        assert!(line2.result);
+        assert!(line3.result);
 
         Ok(())
     }
@@ -804,9 +826,9 @@ mod tests {
         let line2 = regex2.evaluate(value)?;
         let line3 = regex3.evaluate(value)?;
 
-        assert_eq!(line1.result, true);
-        assert_eq!(line2.result, false);
-        assert_eq!(line3.result, true);
+        assert!(line1.result);
+        assert!(!line2.result);
+        assert!(line3.result);
 
         Ok(())
     }
@@ -818,7 +840,7 @@ mod tests {
         let regex = Regex::new("abc{2,10}").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -830,19 +852,23 @@ mod tests {
         let regex = Regex::new("abc{2,10}").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, false);
+        assert!(!line.result);
 
         Ok(())
     }
 
     #[test]
     fn test_match_range_combination_exact() -> Result<(), &'static str> {
-        let value = "abccccc33";
+        let value1 = "abccccc33";
+        let value2 = "aaa";
 
-        let regex = Regex::new("abc{5}").unwrap();
+        let regex1 = Regex::new("abc{5}").unwrap();
+        let regex2 = Regex::new("a{3}").unwrap();
 
-        let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        let line = regex1.evaluate(value1)?;
+        assert!(line.result);
+        let line = regex2.evaluate(value2)?;
+        assert!(line.result);
 
         Ok(())
     }
@@ -854,7 +880,7 @@ mod tests {
         let regex = Regex::new("abc{5}").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, false);
+        assert!(!line.result);
 
         Ok(())
     }
@@ -866,7 +892,7 @@ mod tests {
         let regex = Regex::new("abc{5}3").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, false);
+        assert!(!line.result);
 
         Ok(())
     }
@@ -878,7 +904,7 @@ mod tests {
         let regex = Regex::new("abc{2,}").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -890,7 +916,7 @@ mod tests {
         let regex = Regex::new("abc{2,}").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, false);
+        assert!(!line.result);
 
         Ok(())
     }
@@ -902,7 +928,7 @@ mod tests {
         let regex = Regex::new("abc{,5}").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, true);
+        assert!(line.result);
 
         Ok(())
     }
@@ -914,7 +940,7 @@ mod tests {
         let regex = Regex::new("abc{,5}d").unwrap();
 
         let line = regex.evaluate(value)?;
-        assert_eq!(line.result, false);
+        assert!(!line.result);
 
         Ok(())
     }
@@ -935,10 +961,10 @@ mod tests {
         let line3 = regex3.evaluate(value)?;
         let line4 = regex4.evaluate(value)?;
 
-        assert_eq!(line1.result, true);
-        assert_eq!(line2.result, true);
-        assert_eq!(line3.result, true);
-        assert_eq!(line4.result, true);
+        assert!(line1.result);
+        assert!(line2.result);
+        assert!(line3.result);
+        assert!(line4.result);
 
         Ok(())
     }
@@ -957,10 +983,10 @@ mod tests {
         let line3 = regex3.evaluate(value)?;
         let line4 = regex4.evaluate(value)?;
 
-        assert_eq!(line1.result, true);
-        assert_eq!(line2.result, true);
-        assert_eq!(line3.result, true);
-        assert_eq!(line4.result, true);
+        assert!(line1.result);
+        assert!(line2.result);
+        assert!(line3.result);
+        assert!(line4.result);
 
         Ok(())
     }
@@ -979,11 +1005,59 @@ mod tests {
         let line3 = regex3.evaluate(value)?;
         let line4 = regex4.evaluate(value)?;
 
-        assert_eq!(line1.result, true);
-        assert_eq!(line2.result, true);
-        assert_eq!(line3.result, true);
-        assert_eq!(line4.result, true);
+        assert!(line1.result);
+        assert!(line2.result);
+        assert!(line3.result);
+        assert!(line4.result);
 
         Ok(())
     }*/
+
+    #[test]
+    fn test_backslash_basic() -> Result<(), &'static str> {
+        let value1 = "bca.bc";
+        let regex1 = Regex::new("a\\.").unwrap();
+        let line1 = regex1.evaluate(value1)?;
+        assert!(line1.result);
+
+        let value2 = "bcabc";
+        let regex2 = Regex::new("a\\.").unwrap();
+        let line2 = regex2.evaluate(value2)?;
+        assert!(!line2.result);
+
+        let value3 = "{abc";
+        let regex3 = Regex::new("\\{abc").unwrap();
+        let line3 = regex3.evaluate(value3)?;
+        assert!(line3.result);
+
+        let value4 = "abc";
+        let regex4 = Regex::new("\\abc").unwrap();
+        let line4 = regex4.evaluate(value4)?;
+        assert!(line4.result);
+
+        let value5 = ".e+e?e";
+        let regex5 = Regex::new("\\.e\\+e\\?e").unwrap();
+        let line5 = regex5.evaluate(value5)?;
+        assert!(line5.result);
+
+        let regex6 = Regex::new("abc\\").unwrap_err();
+        assert_eq!(regex6, "Invalid regex: invalid backslash");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_backslash_backslash() -> Result<(), &'static str> {
+        let value1 = "bca\\bc";
+        let regex1 = Regex::new("a\\\\b").unwrap();
+        let line1 = regex1.evaluate(value1)?;
+        assert!(line1.result);
+
+        let value2 = "bcabc";
+        let regex2 = Regex::new("a\\\\b").unwrap();
+        let line2 = regex2.evaluate(value2)?;
+        assert!(!line2.result);
+
+        Ok(())
+    }
 }
