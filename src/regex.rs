@@ -1012,4 +1012,52 @@ mod tests {
 
         Ok(())
     }*/
+
+    #[test]
+    fn test_backslash_basic() -> Result<(), &'static str> {
+        let value1 = "bca.bc";
+        let regex1 = Regex::new("a\\.").unwrap();
+        let line1 = regex1.evaluate(value1)?;
+        assert!(line1.result);
+
+        let value2 = "bcabc";
+        let regex2 = Regex::new("a\\.").unwrap();
+        let line2 = regex2.evaluate(value2)?;
+        assert!(!line2.result);
+
+        let value3 = "{abc";
+        let regex3 = Regex::new("\\{abc").unwrap();
+        let line3 = regex3.evaluate(value3)?;
+        assert!(line3.result);
+
+        let value4 = "abc";
+        let regex4 = Regex::new("\\abc").unwrap();
+        let line4 = regex4.evaluate(value4)?;
+        assert!(line4.result);
+
+        let value5 = ".e+e?e";
+        let regex5 = Regex::new("\\.e\\+e\\?e").unwrap();
+        let line5 = regex5.evaluate(value5)?;
+        assert!(line5.result);
+
+        let regex6 = Regex::new("abc\\").unwrap_err();
+        assert_eq!(regex6, "Invalid regex: invalid backslash");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_backslash_backslash() -> Result<(), &'static str> {
+        let value1 = "bca\\bc";
+        let regex1 = Regex::new("a\\\\b").unwrap();
+        let line1 = regex1.evaluate(value1)?;
+        assert!(line1.result);
+
+        let value2 = "bcabc";
+        let regex2 = Regex::new("a\\\\b").unwrap();
+        let line2 = regex2.evaluate(value2)?;
+        assert!(!line2.result);
+
+        Ok(())
+    }
 }

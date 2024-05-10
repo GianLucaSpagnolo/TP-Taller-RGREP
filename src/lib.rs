@@ -36,15 +36,40 @@ impl Arguments {
     }
 }
 
-pub fn run_rgrep(regex: String, text: String) -> Result<Vec<String>, String> {
-    let iter = text.lines();
+pub fn run_rgrep(regex_str: String, text: String) -> Result<Vec<String>, String> {
+    let iter = text.split('\n');
     let mut correct_lines: Vec<String> = Vec::new();
-    let regex = Regex::new(&regex)?;
 
-    for line in iter {
-        let evaluation = regex.clone().evaluate(line)?;
-        if evaluation.result {
-            correct_lines.push(evaluation.line);
+    let regex_vec = regex_str.split('|');
+    let mut bad_regex = "".to_string();
+    let mut regex_temp;
+    'regex: for mut regex in regex_vec {
+        if regex.ends_with('\\') {
+            bad_regex = regex.to_string();
+            continue 'regex;
+        }
+
+        if !bad_regex.is_empty() {
+            regex_temp = regex.to_string();
+            regex_temp.insert(0, '|');
+            regex_temp.insert_str(0, &bad_regex);
+            regex = &regex_temp;
+            bad_regex = "".to_string();
+        }
+
+        let regex = Regex::new(regex)?;
+        let mut counter = 0;
+
+        for line in iter.clone() {
+            if correct_lines.contains(&line.to_string()) {
+                counter += 1;
+            } else {
+                let evaluation = regex.clone().evaluate(line)?;
+                if evaluation.result {
+                    correct_lines.insert(counter, evaluation.line);
+                    counter += 1;
+                }
+            }
         }
     }
 
