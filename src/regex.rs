@@ -5,7 +5,7 @@ pub mod regex_error;
 pub mod regex_rep;
 pub mod regex_val;
 
-//use regex_class::RegexClass;
+use regex_class::RegexClass;
 use regex_error::RegexError;
 use regex_rep::RegexRep;
 use regex_val::RegexVal;
@@ -181,6 +181,45 @@ impl TryFrom<&str> for Regex {
                         val: RegexVal::Wildcard,
                         anchoring_start: false,
                         anchoring_end: true,
+                    })
+                }
+                '[' => {
+                    let mut negated = false;
+                    let mut vec = Vec::new();
+
+                    if let Some(c) = chars_iter.next() {
+                        if c == '^' {
+                            negated = true;
+                        } else {
+                            vec.push(c);
+                        }
+                    } else {
+                        return Err(RegexError::InvalidBracket.message());
+                    }
+
+                    while let Some(c) = chars_iter.next() {
+                        match c {
+                            ']' => break,
+                            '\\' => {
+                                if let Some(literal) = chars_iter.next() {
+                                    vec.push(literal);
+                                } else {
+                                    return Err(RegexError::InvalidBackslash.message());
+                                }
+                            }
+                            _ => vec.push(c),
+                        }
+                    }
+
+                    Some(RegexStep {
+                        rep: RegexRep::Exact(1),
+                        val: if negated {
+                            RegexVal::NotBracket(vec)
+                        } else {
+                            RegexVal::Bracket(vec)
+                        },
+                        anchoring_start: false,
+                        anchoring_end: false,
                     })
                 }
                 '^' => {
@@ -1115,6 +1154,80 @@ mod tests {
         let regex2 = Regex::new("middle$").unwrap();
         let line2 = regex2.evaluate(value2)?;
         assert!(!line2.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_bracket_expressions() -> Result<(), &'static str> {
+        let value1 = "abc";
+        let value2 = "acc";
+        let value3 = "azc";
+        let value4 = "a9c";
+        let value5 = "a3";
+        let value6 = "ae";
+        let value7 = "aec";
+        let value8 = "aaaaaaeccccccc";
+        let value9 = "aabcdefc";
+
+        let regex = Regex::new("a[abcdef]c").unwrap();
+
+        let line1 = regex.clone().evaluate(value1)?;
+        let line2 = regex.clone().evaluate(value2)?;
+        let line3 = regex.clone().evaluate(value3)?;
+        let line4 = regex.clone().evaluate(value4)?;
+        let line5 = regex.clone().evaluate(value5)?;
+        let line6 = regex.clone().evaluate(value6)?;
+        let line7 = regex.clone().evaluate(value7)?;
+        let line8 = regex.clone().evaluate(value8)?;
+        let line9 = regex.evaluate(value9)?;
+
+        assert!(line1.result);
+        assert!(line2.result);
+        assert!(!line3.result);
+        assert!(!line4.result);
+        assert!(!line5.result);
+        assert!(!line6.result);
+        assert!(line7.result);
+        assert!(line8.result);
+        assert!(line9.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_negated_bracket_expressions() -> Result<(), &'static str> {
+        let value1 = "abc";
+        let value2 = "acc";
+        let value3 = "azc";
+        let value4 = "a9c";
+        let value5 = "a3";
+        let value6 = "ae";
+        let value7 = "aec";
+        let value8 = "aaaaaaeccccccc";
+        let value9 = "ahcalcazcakc";
+
+        let regex = Regex::new("a[^ghijkl]c").unwrap();
+
+        let line1 = regex.clone().evaluate(value1)?;
+        let line2 = regex.clone().evaluate(value2)?;
+        let line3 = regex.clone().evaluate(value3)?;
+        let line4 = regex.clone().evaluate(value4)?;
+        let line5 = regex.clone().evaluate(value5)?;
+        let line6 = regex.clone().evaluate(value6)?;
+        let line7 = regex.clone().evaluate(value7)?;
+        let line8 = regex.clone().evaluate(value8)?;
+        let line9 = regex.evaluate(value9)?;
+
+        assert!(line1.result);
+        assert!(line2.result);
+        assert!(line3.result);
+        assert!(line4.result);
+        assert!(!line5.result);
+        assert!(!line6.result);
+        assert!(line7.result);
+        assert!(line8.result);
+        assert!(line9.result);
 
         Ok(())
     }
