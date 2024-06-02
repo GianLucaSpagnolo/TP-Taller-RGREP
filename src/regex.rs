@@ -14,6 +14,8 @@ use regex_val::RegexVal;
 pub struct RegexStep {
     pub val: RegexVal,
     pub rep: RegexRep,
+    pub anchoring_start: bool,
+    pub anchoring_end: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -39,6 +41,7 @@ impl TryFrom<&str> for Regex {
 
     fn try_from(expression: &str) -> Result<Self, Self::Error> {
         let mut steps: Vec<RegexStep> = vec![];
+        let mut anchoring_start = false;
 
         let mut chars_iter = expression.chars();
         while let Some(c) = chars_iter.next() {
@@ -46,16 +49,22 @@ impl TryFrom<&str> for Regex {
                 '.' => Some(RegexStep {
                     rep: RegexRep::Exact(1),
                     val: RegexVal::Wildcard,
+                    anchoring_start: false,
+                    anchoring_end: false,
                 }),
                 'a'..='z' | 'A'..='Z' | '0'..='9' => Some(RegexStep {
                     rep: RegexRep::Exact(1),
                     val: RegexVal::Literal(c),
+                    anchoring_start: false,
+                    anchoring_end: false,
                 }),
                 '*' => {
                     if steps.is_empty() {
                         Some(RegexStep {
                             rep: RegexRep::Any,
                             val: RegexVal::Wildcard,
+                            anchoring_start: false,
+                            anchoring_end: false,
                         })
                     } else {
                         if let Some(last) = steps.last_mut() {
@@ -72,6 +81,8 @@ impl TryFrom<&str> for Regex {
                                 max: Some(1),
                             },
                             val: RegexVal::Wildcard,
+                            anchoring_start: false,
+                            anchoring_end: false,
                         })
                     } else {
                         if let Some(last) = steps.last_mut() {
@@ -91,6 +102,8 @@ impl TryFrom<&str> for Regex {
                                 max: None,
                             },
                             val: RegexVal::Wildcard,
+                            anchoring_start: false,
+                            anchoring_end: false,
                         })
                     } else {
                         if let Some(last) = steps.last_mut() {
@@ -155,10 +168,31 @@ impl TryFrom<&str> for Regex {
                     }
                     None
                 }
+                '$' => {
+                    let end_regex = RegexStep {
+                        rep: RegexRep::Any,
+                        val: RegexVal::Wildcard,
+                        anchoring_start: false,
+                        anchoring_end: false,
+                    };
+                    steps.insert(0, end_regex);
+                    Some(RegexStep {
+                        rep: RegexRep::Any,
+                        val: RegexVal::Wildcard,
+                        anchoring_start: false,
+                        anchoring_end: true,
+                    })
+                }
+                '^' => {
+                    anchoring_start = true;
+                    None
+                }
                 '\\' => match chars_iter.next() {
                     Some(literal) => Some(RegexStep {
                         rep: RegexRep::Exact(1),
                         val: RegexVal::Literal(literal),
+                        anchoring_start: false,
+                        anchoring_end: false,
                     }),
                     None => return Err(RegexError::InvalidBackslash.message()),
                 },
@@ -168,6 +202,16 @@ impl TryFrom<&str> for Regex {
             if let Some(s) = step {
                 steps.push(s);
             }
+        }
+
+        if anchoring_start {
+            let start_regex = RegexStep {
+                rep: RegexRep::Any,
+                val: RegexVal::Wildcard,
+                anchoring_start: true,
+                anchoring_end: false,
+            };
+            steps.push(start_regex);
         }
 
         Ok(Regex { steps })
@@ -201,11 +245,34 @@ impl Regex {
             }
         }
 
+        let regex_len = queue.len();
         for char_index in 0..value.len() {
             let mut stack: Vec<EvaluatedStep> = Vec::new();
             let mut index = char_index;
 
             'steps: while let Some(step) = queue.pop_front() {
+                if step.anchoring_start {
+                    if index == regex_len - 1 {
+                        return Ok(LineEvaluated {
+                            result: true,
+                            line: value.to_string(),
+                        });
+                    } else {
+                        break 'steps;
+                    }
+                }
+
+                if step.anchoring_end {
+                    if index == value.len() {
+                        return Ok(LineEvaluated {
+                            result: true,
+                            line: value.to_string(),
+                        });
+                    } else {
+                        break 'steps;
+                    }
+                }
+
                 match step.rep {
                     RegexRep::Exact(n) => {
                         let mut match_size = 0;
@@ -945,74 +1012,6 @@ mod tests {
         Ok(())
     }
 
-    /*
-    TESTS PARA OTRO MOMENTO
-    #[test]
-    fn test_match_only_ranged_expression() -> Result<(), &'static str> {
-        let value = "abcdefghij";
-
-        let regex1 = Regex::new("{3}").unwrap();
-        let regex2 = Regex::new("{,3}").unwrap();
-        let regex3 = Regex::new("{3,}").unwrap();
-        let regex4 = Regex::new("{3,5}").unwrap();
-
-        let line1 = regex1.evaluate(value)?;
-        let line2 = regex2.evaluate(value)?;
-        let line3 = regex3.evaluate(value)?;
-        let line4 = regex4.evaluate(value)?;
-
-        assert!(line1.result);
-        assert!(line2.result);
-        assert!(line3.result);
-        assert!(line4.result);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_match_empty_line_with_ranged_expression() -> Result<(), &'static str> {
-        let value = "";
-
-        let regex1 = Regex::new("{3}").unwrap();
-        let regex2 = Regex::new("{3,}").unwrap();
-        let regex3 = Regex::new("{,3}").unwrap();
-        let regex4 = Regex::new("{3,5}").unwrap();
-
-        let line1 = regex1.evaluate(value)?;
-        let line2 = regex2.evaluate(value)?;
-        let line3 = regex3.evaluate(value)?;
-        let line4 = regex4.evaluate(value)?;
-
-        assert!(line1.result);
-        assert!(line2.result);
-        assert!(line3.result);
-        assert!(line4.result);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_match_start_with_ranged_expression() -> Result<(), &'static str> {
-        let value = "testeo";
-
-        let regex1 = Regex::new("{5}esteo").unwrap();
-        let regex2 = Regex::new("{2,}esteo").unwrap();
-        let regex3 = Regex::new("{,2}esteo").unwrap();
-        let regex4 = Regex::new("{2,5}esteo").unwrap();
-
-        let line1 = regex1.evaluate(value)?;
-        let line2 = regex2.evaluate(value)?;
-        let line3 = regex3.evaluate(value)?;
-        let line4 = regex4.evaluate(value)?;
-
-        assert!(line1.result);
-        assert!(line2.result);
-        assert!(line3.result);
-        assert!(line4.result);
-
-        Ok(())
-    }*/
-
     #[test]
     fn test_backslash_basic() -> Result<(), &'static str> {
         let value1 = "bca.bc";
@@ -1055,6 +1054,65 @@ mod tests {
 
         let value2 = "bcabc";
         let regex2 = Regex::new("a\\\\b").unwrap();
+        let line2 = regex2.evaluate(value2)?;
+        assert!(!line2.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_anchoring_start() -> Result<(), &'static str> {
+        let value1 = "start middle end";
+        let value2 = "start with start";
+        let value3 = "end with end";
+        let value4 = "only this line";
+
+        let regex = Regex::new("^start").unwrap();
+
+        let line1 = regex.clone().evaluate(value1)?;
+        let line2 = regex.clone().evaluate(value2)?;
+        let line3 = regex.clone().evaluate(value3)?;
+        let line4 = regex.evaluate(value4)?;
+
+        assert!(line1.result);
+        assert!(line2.result);
+        assert!(!line3.result);
+        assert!(!line4.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_anchoring_end() -> Result<(), &'static str> {
+        let value1 = "start middle end";
+        let value2 = "start with start";
+        let value3 = "end with end";
+        let value4 = "only this line";
+
+        let regex = Regex::new("end$").unwrap();
+
+        let line1 = regex.clone().evaluate(value1)?;
+        let line2 = regex.clone().evaluate(value2)?;
+        let line3 = regex.clone().evaluate(value3)?;
+        let line4 = regex.evaluate(value4)?;
+
+        assert!(line1.result);
+        assert!(!line2.result);
+        assert!(line3.result);
+        assert!(!line4.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_anchoring_fails() -> Result<(), &'static str> {
+        let value1 = "start middle end";
+        let regex1 = Regex::new("^middle").unwrap();
+        let line1 = regex1.evaluate(value1)?;
+        assert!(!line1.result);
+
+        let value2 = "start middle end";
+        let regex2 = Regex::new("middle$").unwrap();
         let line2 = regex2.evaluate(value2)?;
         assert!(!line2.result);
 

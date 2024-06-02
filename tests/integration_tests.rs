@@ -98,6 +98,18 @@ fn tests_funcionamiento_backslash_on_file() {
 }
 
 #[test]
+fn tests_funcionamiento_backslash_at_the_end() {
+    let path_file = "res/test2.txt".to_string();
+    let file_text = read_file(path_file).unwrap();
+
+    let regex = "z|q\\|".to_string();
+    let program_output = run_rgrep(regex, file_text.clone()).unwrap();
+
+    assert_eq!(program_output.len(), 1);
+    assert_eq!(program_output[0], "qqqq|");
+}
+
+#[test]
 fn test_correcciones_entrega_1() {
     let regex = "ab.?d".to_string();
     let text = "abcd\nabcdd\nabd\nhola abcd chau\nabhhd".to_string();
@@ -135,3 +147,55 @@ fn test_correcciones_entrega_3() {
     assert_eq!(program_output[0], "abcccd");
     assert_eq!(program_output[1], "hola abcccd chau");
 }
+
+#[test]
+fn test_correcciones_entrega_4() {
+    let regex = "^start|end$".to_string();
+    let text = "start middle end\nstart with start\nend with end\nonly this line".to_string();
+
+    let program_output = run_rgrep(regex, text).unwrap();
+
+    assert_eq!(program_output.len(), 3);
+    assert_eq!(program_output[0], "start middle end");
+    assert_eq!(program_output[1], "start with start");
+    assert_eq!(program_output[2], "end with end");
+}
+
+#[test]
+fn test_correcciones_entrega_5() {
+    let regex = "end$".to_string();
+    let text = "start middle end\nstart with whatever but end not\nend with end\nonly this line"
+        .to_string();
+
+    let program_output = run_rgrep(regex, text).unwrap();
+
+    assert_eq!(program_output.len(), 2);
+    assert_eq!(program_output[0], "start middle end");
+    assert_eq!(program_output[1], "end with end");
+}
+/*
+#[test]
+fn test_correcciones_entrega_6() {
+    let regex = "[[:punct:]]".to_string();
+    let text = "abc!123\nAB-12\n123\nabc-123".to_string();
+
+    let program_output = run_rgrep(regex, text).unwrap();
+
+    assert_eq!(program_output.len(), 3);
+    assert_eq!(program_output[0], "abc!123");
+    assert_eq!(program_output[1], "AB-12");
+    assert_eq!(program_output[2], "abc-123");
+}
+
+#[test]
+fn test_correcciones_entrega_7() {
+    let regex = "[[:lower:]]".to_string();
+    let text = "abc123\nAB12\n123\nabc-123".to_string();
+
+    let program_output = run_rgrep(regex, text).unwrap();
+
+    assert_eq!(program_output.len(), 2);
+    assert_eq!(program_output[0], "abc123");
+    assert_eq!(program_output[1], "abc-123");
+}
+*/
