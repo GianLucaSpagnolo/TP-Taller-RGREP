@@ -173,7 +173,7 @@ fn test_correcciones_entrega_5() {
     assert_eq!(program_output[0], "start middle end");
     assert_eq!(program_output[1], "end with end");
 }
-/*
+
 #[test]
 fn test_correcciones_entrega_6() {
     let regex = "[[:punct:]]".to_string();
@@ -198,4 +198,3 @@ fn test_correcciones_entrega_7() {
     assert_eq!(program_output[0], "abc123");
     assert_eq!(program_output[1], "abc-123");
 }
-*/

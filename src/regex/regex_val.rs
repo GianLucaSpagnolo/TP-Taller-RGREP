@@ -26,7 +26,17 @@ impl RegexVal {
                     0
                 }
             }
-            RegexVal::Class(_) => 0,
+            RegexVal::Class(class) => {
+                if let Some(c) = value.chars().next() {
+                    if class.matches(c) {
+                        c.len_utf8()
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                }
+            }
             RegexVal::Bracket(vec) => {
                 for c in vec {
                     if value.starts_with(*c) {
@@ -41,7 +51,7 @@ impl RegexVal {
                         return 0;
                     }
                 }
-                
+
                 let next_char = value.chars().next();
                 if let Some(c) = next_char {
                     c.len_utf8()
