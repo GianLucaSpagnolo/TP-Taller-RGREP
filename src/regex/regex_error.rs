@@ -8,6 +8,22 @@ pub enum RegexError {
 }
 
 impl RegexError {
+    /// Returns the error message for the RegexError
+    ///
+    /// # Returns
+    ///
+    /// * &str - The error message
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rgrep::regex::regex_error::*;
+    ///
+    /// let error = RegexError::InvalidRange;
+    ///
+    /// assert_eq!(error.message(), "Invalid regex: invalid range");
+    /// ```
+    ///
     pub fn message(&self) -> &str {
         match self {
             RegexError::InvalidRange => "Invalid regex: invalid range",

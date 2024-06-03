@@ -39,6 +39,32 @@ pub struct LineEvaluated {
 impl TryFrom<&str> for Regex {
     type Error = &'static str;
 
+    /// Given a string, returns a new Regex if the string is a valid regex.
+    /// Characters are iterated and converted into RegexSteps.
+    ///
+    /// List of supported characters:
+    ///
+    /// * '.' - Matches any character
+    /// * '*' - Matches zero or more of the preceding element
+    /// * '?' - Matches zero or one of the preceding element
+    /// * '+' - Matches one or more of the preceding element
+    /// * '{' - Matches the preceding element a specified number of times
+    /// * '}' - End of the specified number of times
+    /// * '[' - Matches any character in the brackets
+    /// * ']' - End of the bracket
+    /// * '^' - Anchors the regex at the start of the line
+    /// * '$' - Anchors the regex at the end of the line
+    /// * '\\' - Escapes the following character
+    ///
+    /// # Arguments
+    ///
+    /// * `expression` - A string to be checked
+    ///
+    /// # Returns
+    ///
+    /// * Regex - The corresponding Regex if the string is a valid regex
+    /// * Error - The corresponding error if the string is not a valid regex
+    ///
     fn try_from(expression: &str) -> Result<Self, Self::Error> {
         let mut steps: Vec<RegexStep> = vec![];
         let mut anchoring_start = false;
@@ -211,7 +237,8 @@ impl TryFrom<&str> for Regex {
                             return Err(RegexError::InvalidClass.message());
                         }
 
-                        let character_class = determinate_regex_class(class_vec);
+                        let class: String = class_vec.iter().collect();
+                        let character_class = determinate_regex_class(class);
                         match character_class {
                             Ok(class) => {
                                 regex_class = Some(class);
@@ -298,10 +325,51 @@ impl TryFrom<&str> for Regex {
 }
 
 impl Regex {
+    /// Given a string, returns a new Regex if the string is a valid regex
+    ///
+    /// # Arguments
+    ///
+    /// * `expression` - A string to be checked
+    ///
+    /// # Returns
+    ///
+    /// * Regex - The corresponding Regex if the string is a valid regex
+    /// * &str - The corresponding error if the string is not a valid regex
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rgrep::regex::Regex;
+    ///
+    /// let regex = Regex::new("abc.*").unwrap();
+    /// ```
+    ///
     pub fn new(expression: &str) -> Result<Self, &str> {
         Regex::try_from(expression)
     }
 
+    /// Given a string, returns a LineEvaluated if the string matches the regex
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - A string to be checked
+    ///
+    /// # Returns
+    ///
+    /// * LineEvaluated - The result of the evaluation
+    /// * &str - The corresponding error if the string contains non-ascii characters
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rgrep::regex::Regex;
+    ///
+    /// let regex = Regex::new("abc.*").unwrap();
+    /// let line = regex.evaluate("abcdefg").unwrap();
+    ///
+    /// assert_eq!(line.result, true);
+    /// ```
+    ///
     pub fn evaluate(self, value: &str) -> Result<LineEvaluated, &str> {
         if !value.is_ascii() {
             return Err(RegexError::NoAsciiCharacter.message());

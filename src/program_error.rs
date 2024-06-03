@@ -9,6 +9,22 @@ pub enum ProgramError {
 }
 
 impl ProgramError {
+    /// Returns the error message for the ProgramError
+    ///
+    /// # Returns
+    ///
+    /// * &str - The error message
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rgrep::program_error::*;
+    ///
+    /// let error = ProgramError::ArgumentMissing;
+    ///
+    /// assert_eq!(error.message(), "Invalid arguments: regex and path missing");
+    /// ```
+    ///
     pub fn message(&self) -> &str {
         match self {
             // Arguments Errors

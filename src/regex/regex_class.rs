@@ -12,6 +12,27 @@ pub enum RegexClass {
 }
 
 impl RegexClass {
+    /// Given a char, returns if it matches the RegexClass
+    ///
+    /// # Arguments
+    ///
+    /// * `c` - A char to be checked
+    ///
+    /// # Returns
+    ///
+    /// * bool - If the char matches the RegexClass
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rgrep::regex::regex_class::*;
+    ///
+    /// let regex_class = RegexClass::Alnum;
+    ///
+    /// let a = 'a';
+    /// assert_eq!(regex_class.matches(a), true);
+    /// ```
+    ///
     pub fn matches(&self, c: char) -> bool {
         match self {
             RegexClass::Alnum => c.is_alphanumeric(),
@@ -25,9 +46,30 @@ impl RegexClass {
     }
 }
 
-pub fn determinate_regex_class(chars_class: Vec<char>) -> Result<RegexClass, RegexError> {
-    let class: String = chars_class.iter().collect();
-
+/// Given a vector of chars, returns the corresponding RegexClass
+///
+/// # Arguments
+///
+/// * `class` - A string that represents a RegexClass
+///
+/// # Returns
+///
+/// * RegexClass - The corresponding RegexClass if it is valid
+/// * RegexError - If the class is invalid
+///
+/// # Examples
+///
+/// ```
+/// use rgrep::regex::regex_class::*;
+///
+/// let class = "alnum".to_string();
+/// let regex_class = determinate_regex_class(class).unwrap();
+///
+/// let a = 'a';
+/// assert_eq!(regex_class.matches(a), true);
+/// ```
+///
+pub fn determinate_regex_class(class: String) -> Result<RegexClass, RegexError> {
     match class.as_str() {
         "alnum" => Ok(RegexClass::Alnum),
         "alpha" => Ok(RegexClass::Alpha),

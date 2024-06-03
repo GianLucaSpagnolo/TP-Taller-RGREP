@@ -1,5 +1,5 @@
 // WELCOME TO RGREP: RUSTIC GREP
-// Gian Luca Spagnolo - 108072
+// Made by: Gian Luca Spagnolo
 use std::env;
 
 use rgrep::Arguments;
