@@ -5,7 +5,7 @@ pub mod regex_error;
 pub mod regex_rep;
 pub mod regex_val;
 
-//use regex_class::RegexClass;
+use regex_class::determinate_regex_class;
 use regex_error::RegexError;
 use regex_rep::RegexRep;
 use regex_val::RegexVal;
@@ -14,6 +14,8 @@ use regex_val::RegexVal;
 pub struct RegexStep {
     pub val: RegexVal,
     pub rep: RegexRep,
+    pub anchoring_start: bool,
+    pub anchoring_end: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -37,8 +39,35 @@ pub struct LineEvaluated {
 impl TryFrom<&str> for Regex {
     type Error = &'static str;
 
+    /// Given a string, returns a new Regex if the string is a valid regex.
+    /// Characters are iterated and converted into RegexSteps.
+    ///
+    /// List of supported characters:
+    ///
+    /// * '.' - Matches any character
+    /// * '*' - Matches zero or more of the preceding element
+    /// * '?' - Matches zero or one of the preceding element
+    /// * '+' - Matches one or more of the preceding element
+    /// * '{' - Matches the preceding element a specified number of times
+    /// * '}' - End of the specified number of times
+    /// * '[' - Matches any character in the brackets
+    /// * ']' - End of the bracket
+    /// * '^' - Anchors the regex at the start of the line
+    /// * '$' - Anchors the regex at the end of the line
+    /// * '\\' - Escapes the following character
+    ///
+    /// # Arguments
+    ///
+    /// * `expression` - A string to be checked
+    ///
+    /// # Returns
+    ///
+    /// * Regex - The corresponding Regex if the string is a valid regex
+    /// * Error - The corresponding error if the string is not a valid regex
+    ///
     fn try_from(expression: &str) -> Result<Self, Self::Error> {
         let mut steps: Vec<RegexStep> = vec![];
+        let mut anchoring_start = false;
 
         let mut chars_iter = expression.chars();
         while let Some(c) = chars_iter.next() {
@@ -46,16 +75,16 @@ impl TryFrom<&str> for Regex {
                 '.' => Some(RegexStep {
                     rep: RegexRep::Exact(1),
                     val: RegexVal::Wildcard,
-                }),
-                'a'..='z' | 'A'..='Z' | '0'..='9' => Some(RegexStep {
-                    rep: RegexRep::Exact(1),
-                    val: RegexVal::Literal(c),
+                    anchoring_start: false,
+                    anchoring_end: false,
                 }),
                 '*' => {
                     if steps.is_empty() {
                         Some(RegexStep {
                             rep: RegexRep::Any,
                             val: RegexVal::Wildcard,
+                            anchoring_start: false,
+                            anchoring_end: false,
                         })
                     } else {
                         if let Some(last) = steps.last_mut() {
@@ -72,6 +101,8 @@ impl TryFrom<&str> for Regex {
                                 max: Some(1),
                             },
                             val: RegexVal::Wildcard,
+                            anchoring_start: false,
+                            anchoring_end: false,
                         })
                     } else {
                         if let Some(last) = steps.last_mut() {
@@ -91,6 +122,8 @@ impl TryFrom<&str> for Regex {
                                 max: None,
                             },
                             val: RegexVal::Wildcard,
+                            anchoring_start: false,
+                            anchoring_end: false,
                         })
                     } else {
                         if let Some(last) = steps.last_mut() {
@@ -155,14 +188,121 @@ impl TryFrom<&str> for Regex {
                     }
                     None
                 }
+                '$' => {
+                    let end_regex = RegexStep {
+                        rep: RegexRep::Any,
+                        val: RegexVal::Wildcard,
+                        anchoring_start: false,
+                        anchoring_end: false,
+                    };
+                    steps.insert(0, end_regex);
+                    Some(RegexStep {
+                        rep: RegexRep::Any,
+                        val: RegexVal::Wildcard,
+                        anchoring_start: false,
+                        anchoring_end: true,
+                    })
+                }
+                '[' => {
+                    let mut negated = false;
+                    let mut vec = Vec::new();
+                    let mut is_regex_class = false;
+
+                    if let Some(c) = chars_iter.next() {
+                        if c == '^' {
+                            negated = true;
+                        } else if c == '[' {
+                            is_regex_class = true;
+                        } else {
+                            vec.push(c);
+                        }
+                    } else {
+                        return Err(RegexError::InvalidBracket.message());
+                    }
+
+                    let mut end_bracket = false;
+                    let mut regex_class = None;
+                    if is_regex_class && chars_iter.next() == Some(':') {
+                        let mut class_vec = Vec::new();
+                        let mut end_class = false;
+                        while let Some(c) = chars_iter.next() {
+                            if c == ':' && chars_iter.next() == Some(']') {
+                                end_class = true;
+                                break;
+                            }
+                            class_vec.push(c);
+                        }
+
+                        if !end_class {
+                            return Err(RegexError::InvalidClass.message());
+                        }
+
+                        let class: String = class_vec.iter().collect();
+                        let character_class = determinate_regex_class(class);
+                        match character_class {
+                            Ok(class) => {
+                                regex_class = Some(class);
+                            }
+                            Err(_) => return Err(RegexError::InvalidClass.message()),
+                        }
+                    }
+
+                    while let Some(c) = chars_iter.next() {
+                        match c {
+                            ']' => {
+                                end_bracket = true;
+                                break;
+                            }
+                            '\\' => {
+                                if let Some(literal) = chars_iter.next() {
+                                    vec.push(literal);
+                                } else {
+                                    return Err(RegexError::InvalidBackslash.message());
+                                }
+                            }
+                            _ => vec.push(c),
+                        }
+                    }
+
+                    if !end_bracket {
+                        return Err(RegexError::InvalidBracket.message());
+                    }
+
+                    let val;
+                    if let Some(class) = regex_class {
+                        val = RegexVal::Class(class);
+                    } else if negated {
+                        val = RegexVal::NotBracket(vec);
+                    } else {
+                        val = RegexVal::Bracket(vec);
+                    }
+
+                    Some(RegexStep {
+                        rep: RegexRep::Exact(1),
+                        val,
+                        anchoring_start: false,
+                        anchoring_end: false,
+                    })
+                }
+                '^' => {
+                    anchoring_start = true;
+                    None
+                }
                 '\\' => match chars_iter.next() {
                     Some(literal) => Some(RegexStep {
                         rep: RegexRep::Exact(1),
                         val: RegexVal::Literal(literal),
+                        anchoring_start: false,
+                        anchoring_end: false,
                     }),
                     None => return Err(RegexError::InvalidBackslash.message()),
                 },
-                _ => return Err(RegexError::InvalidCharacter.message()),
+                _ => Some(RegexStep {
+                    rep: RegexRep::Exact(1),
+                    val: RegexVal::Literal(c),
+                    anchoring_start: false,
+                    anchoring_end: false,
+                }),
             };
 
             if let Some(s) = step {
@@ -170,15 +310,66 @@ impl TryFrom<&str> for Regex {
             }
         }
 
+        if anchoring_start {
+            let start_regex = RegexStep {
+                rep: RegexRep::Any,
+                val: RegexVal::Wildcard,
+                anchoring_start: true,
+                anchoring_end: false,
+            };
+            steps.push(start_regex);
+        }
+
         Ok(Regex { steps })
     }
 }
 
 impl Regex {
+    /// Given a string, returns a new Regex if the string is a valid regex
+    ///
+    /// # Arguments
+    ///
+    /// * `expression` - A string to be checked
+    ///
+    /// # Returns
+    ///
+    /// * Regex - The corresponding Regex if the string is a valid regex
+    /// * &str - The corresponding error if the string is not a valid regex
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rgrep::regex::Regex;
+    ///
+    /// let regex = Regex::new("abc.*").unwrap();
+    /// ```
+    ///
     pub fn new(expression: &str) -> Result<Self, &str> {
         Regex::try_from(expression)
     }
 
+    /// Given a string, returns a LineEvaluated if the string matches the regex
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - A string to be checked
+    ///
+    /// # Returns
+    ///
+    /// * LineEvaluated - The result of the evaluation
+    /// * &str - The corresponding error if the string contains non-ascii characters
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rgrep::regex::Regex;
+    ///
+    /// let regex = Regex::new("abc.*").unwrap();
+    /// let line = regex.evaluate("abcdefg").unwrap();
+    ///
+    /// assert_eq!(line.result, true);
+    /// ```
+    ///
     pub fn evaluate(self, value: &str) -> Result<LineEvaluated, &str> {
         if !value.is_ascii() {
             return Err(RegexError::NoAsciiCharacter.message());
@@ -201,11 +392,34 @@ impl Regex {
             }
         }
 
+        let regex_len = queue.len();
         for char_index in 0..value.len() {
             let mut stack: Vec<EvaluatedStep> = Vec::new();
             let mut index = char_index;
 
             'steps: while let Some(step) = queue.pop_front() {
+                if step.anchoring_start {
+                    if index == regex_len - 1 {
+                        return Ok(LineEvaluated {
+                            result: true,
+                            line: value.to_string(),
+                        });
+                    } else {
+                        break 'steps;
+                    }
+                }
+
+                if step.anchoring_end {
+                    if index == value.len() {
+                        return Ok(LineEvaluated {
+                            result: true,
+                            line: value.to_string(),
+                        });
+                    } else {
+                        break 'steps;
+                    }
+                }
+
                 match step.rep {
                     RegexRep::Exact(n) => {
                         let mut match_size = 0;
@@ -945,74 +1159,6 @@ mod tests {
         Ok(())
     }
 
-    /*
-    TESTS PARA OTRO MOMENTO
-    #[test]
-    fn test_match_only_ranged_expression() -> Result<(), &'static str> {
-        let value = "abcdefghij";
-
-        let regex1 = Regex::new("{3}").unwrap();
-        let regex2 = Regex::new("{,3}").unwrap();
-        let regex3 = Regex::new("{3,}").unwrap();
-        let regex4 = Regex::new("{3,5}").unwrap();
-
-        let line1 = regex1.evaluate(value)?;
-        let line2 = regex2.evaluate(value)?;
-        let line3 = regex3.evaluate(value)?;
-        let line4 = regex4.evaluate(value)?;
-
-        assert!(line1.result);
-        assert!(line2.result);
-        assert!(line3.result);
-        assert!(line4.result);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_match_empty_line_with_ranged_expression() -> Result<(), &'static str> {
-        let value = "";
-
-        let regex1 = Regex::new("{3}").unwrap();
-        let regex2 = Regex::new("{3,}").unwrap();
-        let regex3 = Regex::new("{,3}").unwrap();
-        let regex4 = Regex::new("{3,5}").unwrap();
-
-        let line1 = regex1.evaluate(value)?;
-        let line2 = regex2.evaluate(value)?;
-        let line3 = regex3.evaluate(value)?;
-        let line4 = regex4.evaluate(value)?;
-
-        assert!(line1.result);
-        assert!(line2.result);
-        assert!(line3.result);
-        assert!(line4.result);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_match_start_with_ranged_expression() -> Result<(), &'static str> {
-        let value = "testeo";
-
-        let regex1 = Regex::new("{5}esteo").unwrap();
-        let regex2 = Regex::new("{2,}esteo").unwrap();
-        let regex3 = Regex::new("{,2}esteo").unwrap();
-        let regex4 = Regex::new("{2,5}esteo").unwrap();
-
-        let line1 = regex1.evaluate(value)?;
-        let line2 = regex2.evaluate(value)?;
-        let line3 = regex3.evaluate(value)?;
-        let line4 = regex4.evaluate(value)?;
-
-        assert!(line1.result);
-        assert!(line2.result);
-        assert!(line3.result);
-        assert!(line4.result);
-
-        Ok(())
-    }*/
-
     #[test]
     fn test_backslash_basic() -> Result<(), &'static str> {
         let value1 = "bca.bc";
@@ -1057,6 +1203,300 @@ mod tests {
         let regex2 = Regex::new("a\\\\b").unwrap();
         let line2 = regex2.evaluate(value2)?;
         assert!(!line2.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_anchoring_start() -> Result<(), &'static str> {
+        let value1 = "start middle end";
+        let value2 = "start with start";
+        let value3 = "end with end";
+        let value4 = "only this line";
+
+        let regex = Regex::new("^start").unwrap();
+
+        let line1 = regex.clone().evaluate(value1)?;
+        let line2 = regex.clone().evaluate(value2)?;
+        let line3 = regex.clone().evaluate(value3)?;
+        let line4 = regex.evaluate(value4)?;
+
+        assert!(line1.result);
+        assert!(line2.result);
+        assert!(!line3.result);
+        assert!(!line4.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_anchoring_end() -> Result<(), &'static str> {
+        let value1 = "start middle end";
+        let value2 = "start with start";
+        let value3 = "end with end";
+        let value4 = "only this line";
+
+        let regex = Regex::new("end$").unwrap();
+
+        let line1 = regex.clone().evaluate(value1)?;
+        let line2 = regex.clone().evaluate(value2)?;
+        let line3 = regex.clone().evaluate(value3)?;
+        let line4 = regex.evaluate(value4)?;
+
+        assert!(line1.result);
+        assert!(!line2.result);
+        assert!(line3.result);
+        assert!(!line4.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_anchoring_fails() -> Result<(), &'static str> {
+        let value1 = "start middle end";
+        let regex1 = Regex::new("^middle").unwrap();
+        let line1 = regex1.evaluate(value1)?;
+        assert!(!line1.result);
+
+        let value2 = "start middle end";
+        let regex2 = Regex::new("middle$").unwrap();
+        let line2 = regex2.evaluate(value2)?;
+        assert!(!line2.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_bracket_expressions() -> Result<(), &'static str> {
+        let value1 = "abc";
+        let value2 = "acc";
+        let value3 = "azc";
+        let value4 = "a9c";
+        let value5 = "a3";
+        let value6 = "ae";
+        let value7 = "aec";
+        let value8 = "aaaaaaeccccccc";
+        let value9 = "aabcdefc";
+
+        let regex = Regex::new("a[abcdef]c").unwrap();
+
+        let line1 = regex.clone().evaluate(value1)?;
+        let line2 = regex.clone().evaluate(value2)?;
+        let line3 = regex.clone().evaluate(value3)?;
+        let line4 = regex.clone().evaluate(value4)?;
+        let line5 = regex.clone().evaluate(value5)?;
+        let line6 = regex.clone().evaluate(value6)?;
+        let line7 = regex.clone().evaluate(value7)?;
+        let line8 = regex.clone().evaluate(value8)?;
+        let line9 = regex.evaluate(value9)?;
+
+        assert!(line1.result);
+        assert!(line2.result);
+        assert!(!line3.result);
+        assert!(!line4.result);
+        assert!(!line5.result);
+        assert!(!line6.result);
+        assert!(line7.result);
+        assert!(line8.result);
+        assert!(line9.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_negated_bracket_expressions() -> Result<(), &'static str> {
+        let value1 = "abc";
+        let value2 = "acc";
+        let value3 = "azc";
+        let value4 = "a9c";
+        let value5 = "a3";
+        let value6 = "ae";
+        let value7 = "aec";
+        let value8 = "aaaaaaeccccccc";
+        let value9 = "ahcalcazcakc";
+
+        let regex = Regex::new("a[^ghijkl]c").unwrap();
+
+        let line1 = regex.clone().evaluate(value1)?;
+        let line2 = regex.clone().evaluate(value2)?;
+        let line3 = regex.clone().evaluate(value3)?;
+        let line4 = regex.clone().evaluate(value4)?;
+        let line5 = regex.clone().evaluate(value5)?;
+        let line6 = regex.clone().evaluate(value6)?;
+        let line7 = regex.clone().evaluate(value7)?;
+        let line8 = regex.clone().evaluate(value8)?;
+        let line9 = regex.evaluate(value9)?;
+
+        assert!(line1.result);
+        assert!(line2.result);
+        assert!(line3.result);
+        assert!(line4.result);
+        assert!(!line5.result);
+        assert!(!line6.result);
+        assert!(line7.result);
+        assert!(line8.result);
+        assert!(line9.result);
+
+        Ok(())
+    }
+
+    const VALUE1: &str = "abc";
+    const VALUE2: &str = "a1c";
+    const VALUE3: &str = "a%c";
+    const VALUE4: &str = "aBc";
+    const VALUE5: &str = "a c";
+    const VALUE6: &str = "a-c";
+
+    #[test]
+    fn test_regex_alnum_class() -> Result<(), &'static str> {
+        // Alphanumeric
+        let alnum_regex = Regex::new("a[[:alnum:]]c").unwrap();
+
+        let alnum_line1 = alnum_regex.clone().evaluate(VALUE1)?;
+        let alnum_line2 = alnum_regex.clone().evaluate(VALUE2)?;
+        let alnum_line3 = alnum_regex.clone().evaluate(VALUE3)?;
+        let alnum_line4 = alnum_regex.clone().evaluate(VALUE4)?;
+        let alnum_line5 = alnum_regex.clone().evaluate(VALUE5)?;
+        let alnum_line6 = alnum_regex.evaluate(VALUE6)?;
+
+        assert!(alnum_line1.result);
+        assert!(alnum_line2.result);
+        assert!(!alnum_line3.result);
+        assert!(alnum_line4.result);
+        assert!(!alnum_line5.result);
+        assert!(!alnum_line6.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_regex_alpha_class() -> Result<(), &'static str> {
+        // Alphabetic
+        let alpha_regex = Regex::new("a[[:alpha:]]c").unwrap();
+
+        let alpha_line1 = alpha_regex.clone().evaluate(VALUE1)?;
+        let alpha_line2 = alpha_regex.clone().evaluate(VALUE2)?;
+        let alpha_line3 = alpha_regex.clone().evaluate(VALUE3)?;
+        let alpha_line4 = alpha_regex.clone().evaluate(VALUE4)?;
+        let alpha_line5 = alpha_regex.clone().evaluate(VALUE5)?;
+        let alpha_line6 = alpha_regex.evaluate(VALUE6)?;
+
+        assert!(alpha_line1.result);
+        assert!(!alpha_line2.result);
+        assert!(!alpha_line3.result);
+        assert!(alpha_line4.result);
+        assert!(!alpha_line5.result);
+        assert!(!alpha_line6.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_regex_digit_class() -> Result<(), &'static str> {
+        // Digit - Numeric
+        let digit_regex = Regex::new("a[[:digit:]]c").unwrap();
+
+        let digit_line1 = digit_regex.clone().evaluate(VALUE1)?;
+        let digit_line2 = digit_regex.clone().evaluate(VALUE2)?;
+        let digit_line3 = digit_regex.clone().evaluate(VALUE3)?;
+        let digit_line4 = digit_regex.clone().evaluate(VALUE4)?;
+        let digit_line5 = digit_regex.clone().evaluate(VALUE5)?;
+        let digit_line6 = digit_regex.evaluate(VALUE6)?;
+
+        assert!(!digit_line1.result);
+        assert!(digit_line2.result);
+        assert!(!digit_line3.result);
+        assert!(!digit_line4.result);
+        assert!(!digit_line5.result);
+        assert!(!digit_line6.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_regex_lower_class() -> Result<(), &'static str> {
+        // Lowercase letters
+        let lower_regex = Regex::new("a[[:lower:]]c").unwrap();
+
+        let lower_line1 = lower_regex.clone().evaluate(VALUE1)?;
+        let lower_line2 = lower_regex.clone().evaluate(VALUE2)?;
+        let lower_line3 = lower_regex.clone().evaluate(VALUE3)?;
+        let lower_line4 = lower_regex.clone().evaluate(VALUE4)?;
+        let lower_line5 = lower_regex.clone().evaluate(VALUE5)?;
+        let lower_line6 = lower_regex.evaluate(VALUE6)?;
+
+        assert!(lower_line1.result);
+        assert!(!lower_line2.result);
+        assert!(!lower_line3.result);
+        assert!(!lower_line4.result);
+        assert!(!lower_line5.result);
+        assert!(!lower_line6.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_regex_upper_class() -> Result<(), &'static str> {
+        // Uppercase letters
+        let upper_regex = Regex::new("a[[:upper:]]c").unwrap();
+
+        let upper_line1 = upper_regex.clone().evaluate(VALUE1)?;
+        let upper_line2 = upper_regex.clone().evaluate(VALUE2)?;
+        let upper_line3 = upper_regex.clone().evaluate(VALUE3)?;
+        let upper_line4 = upper_regex.clone().evaluate(VALUE4)?;
+        let upper_line5 = upper_regex.clone().evaluate(VALUE5)?;
+        let upper_line6 = upper_regex.evaluate(VALUE6)?;
+
+        assert!(!upper_line1.result);
+        assert!(!upper_line2.result);
+        assert!(!upper_line3.result);
+        assert!(upper_line4.result);
+        assert!(!upper_line5.result);
+        assert!(!upper_line6.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_regex_space_class() -> Result<(), &'static str> {
+        // Space character
+        let space_regex = Regex::new("a[[:space:]]c").unwrap();
+
+        let space_line1 = space_regex.clone().evaluate(VALUE1)?;
+        let space_line2 = space_regex.clone().evaluate(VALUE2)?;
+        let space_line3 = space_regex.clone().evaluate(VALUE3)?;
+        let space_line4 = space_regex.clone().evaluate(VALUE4)?;
+        let space_line5 = space_regex.clone().evaluate(VALUE5)?;
+        let space_line6 = space_regex.evaluate(VALUE6)?;
+
+        assert!(!space_line1.result);
+        assert!(!space_line2.result);
+        assert!(!space_line3.result);
+        assert!(!space_line4.result);
+        assert!(space_line5.result);
+        assert!(!space_line6.result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_regex_punct_class() -> Result<(), &'static str> {
+        // Punctuation character
+        let punct_regex = Regex::new("a[[:punct:]]c").unwrap();
+
+        let punct_line1 = punct_regex.clone().evaluate(VALUE1)?;
+        let punct_line2 = punct_regex.clone().evaluate(VALUE2)?;
+        let punct_line3 = punct_regex.clone().evaluate(VALUE3)?;
+        let punct_line4 = punct_regex.clone().evaluate(VALUE4)?;
+        let punct_line5 = punct_regex.clone().evaluate(VALUE5)?;
+        let punct_line6 = punct_regex.evaluate(VALUE6)?;
+
+        assert!(!punct_line1.result);
+        assert!(!punct_line2.result);
+        assert!(punct_line3.result);
+        assert!(!punct_line4.result);
+        assert!(!punct_line5.result);
+        assert!(punct_line6.result);
 
         Ok(())
     }

@@ -15,6 +15,31 @@ pub struct Arguments {
 }
 
 impl Arguments {
+    /// Given an iterator of strings, returns the corresponding Arguments
+    ///
+    /// # Arguments
+    ///
+    /// * `args` - An iterator of strings
+    ///
+    /// # Returns
+    ///
+    /// * Arguments - The corresponding Arguments if they are valid
+    /// * ProgramError - The corresponding error if the Arguments are invalid
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rgrep::Arguments;
+    ///
+    /// let binding = { vec!["rgrep", "regex", "path"] };
+    ///
+    /// let args = binding.iter().map(|s| s.to_string());
+    ///
+    /// let arguments = Arguments::new(args).unwrap();
+    /// assert_eq!(arguments.regex, "regex".to_string());
+    /// assert_eq!(arguments.path, "path".to_string());
+    /// ```
+    ///
     pub fn new(mut args: impl Iterator<Item = String>) -> Result<Arguments, ProgramError> {
         args.next();
 
@@ -36,6 +61,36 @@ impl Arguments {
     }
 }
 
+/// Given a regex and a text, returns the lines that match the regex.
+/// It also separates the regex by the character '|', and evaluates each regex separately.
+///
+/// # Arguments
+///
+/// * `regex_str` - A string that represents a regex
+/// * `text` - A string that represents a text
+///
+/// # Returns
+///
+/// * Vec<String> - The lines that match the regex
+/// * String - The error if the regex is invalid
+///
+/// # Examples
+///
+/// ```
+/// use rgrep::run_rgrep;
+///
+/// let text = "abcd\nabecd\nab10cd".to_string();
+///
+/// let regex_str = "ab.cd".to_string();
+/// let result = run_rgrep(regex_str, text.clone()).unwrap();
+/// assert_eq!(result, vec!["abecd"]);
+///
+/// let regex_str = "ab.*cd".to_string();
+///
+/// let result = run_rgrep(regex_str, text).unwrap();
+/// assert_eq!(result, vec!["abcd", "abecd", "ab10cd"]);
+/// ```
+///
 pub fn run_rgrep(regex_str: String, text: String) -> Result<Vec<String>, String> {
     let iter = text.split('\n');
     let mut correct_lines: Vec<String> = Vec::new();
@@ -76,12 +131,48 @@ pub fn run_rgrep(regex_str: String, text: String) -> Result<Vec<String>, String>
     Ok(correct_lines)
 }
 
+/// Given a vector of strings, prints each string
+///
+/// # Arguments
+///
+/// * `lines` - A vector of strings
+///
+/// # Examples
+///
+/// ```
+/// use rgrep::print_lines;
+///
+/// let lines = vec!["abcd".to_string(), "efgh".to_string()];
+/// print_lines(lines);
+/// ```
+///
 pub fn print_lines(lines: Vec<String>) {
     for line in lines {
         println!("{}", line);
     }
 }
 
+/// Given a path, returns the text of the file
+///
+/// # Arguments
+///
+/// * `path` - A string that represents the path of the file
+///
+/// # Returns
+///
+/// * String - The text of the file
+/// * ProgramError - The error if the file is invalid
+///
+/// # Examples
+///
+/// ```
+/// use rgrep::read_file;
+///
+/// let text = read_file("res/test2.txt".to_string()).unwrap();
+///
+/// assert_eq!(text, "aaa\nee|oo\neo\nqqqq|\n|pppp\n".to_string());
+/// ```
+///
 pub fn read_file(path: String) -> Result<String, ProgramError> {
     let text = fs::read_to_string(path);
     match text {
@@ -105,6 +196,20 @@ fn process_error(err: Box<dyn Error>) -> ProgramError {
     }
 }
 
+/// Given an error, prints the error
+///
+/// # Arguments
+///
+/// * `err` - A string that represents the error
+///
+/// # Examples
+///
+/// ```
+/// use rgrep::print_error;
+///
+/// print_error("Error while reading file");
+/// ```
+///
 pub fn print_error(err: &str) {
     writeln!(&mut std::io::stderr(), "rgrep: {}", err).unwrap_or_else(|_| ());
 }
