@@ -384,6 +384,176 @@ impl TryFrom<&str> for Regex {
     }
 }
 
+/// Given a queue of RegexSteps, a string and a state, returns a LineEvaluated if the string matches the regex
+/// The function iterates over the string and the queue of RegexSteps to evaluate the match
+/// The function returns a LineEvaluated with the result of the evaluation
+/// The function is recursive and uses a stack to backtrack when needed
+/// The function is used by the evaluate method of the Regex struct
+///
+fn evaluate_step(
+    queue: &mut VecDeque<RegexStep>,
+    value: &str,
+    mut state: bool,
+    queue_size: usize,
+) -> Result<LineEvaluated, &'static str> {
+    let regex_len = queue.len();
+    for char_index in 0..value.len() {
+        let mut stack: Vec<EvaluatedStep> = Vec::new();
+        let mut index = char_index;
+
+        'steps: while let Some(step) = queue.pop_front() {
+            if step.anchoring_start {
+                if index == regex_len - 1 {
+                    return Ok(LineEvaluated {
+                        result: true,
+                        line: value.to_string(),
+                    });
+                } else {
+                    break 'steps;
+                }
+            }
+
+            if step.anchoring_end {
+                if index == value.len() {
+                    return Ok(LineEvaluated {
+                        result: true,
+                        line: value.to_string(),
+                    });
+                } else {
+                    break 'steps;
+                }
+            }
+
+            match step.rep {
+                RegexRep::Exact(n) => {
+                    let mut match_size = 0;
+                    for i in 0..n {
+                        let size = step.val.matches(&value[index..]);
+
+                        if size == 0 {
+                            match backtrack(step, &mut stack, queue) {
+                                Some(size) => {
+                                    index -= size;
+                                    continue 'steps;
+                                }
+                                None => {
+                                    break 'steps;
+                                }
+                            }
+                        } else {
+                            if queue.is_empty() && i == n - 1 {
+                                state = true;
+                                break 'steps;
+                            }
+                            match_size += size;
+                            index += size;
+                        }
+                    }
+                    stack.push(EvaluatedStep {
+                        step,
+                        match_size,
+                        backtrackable: false,
+                    })
+                }
+                RegexRep::Any => {
+                    let mut is_match = false;
+                    let mut keep_matching = true;
+                    while keep_matching {
+                        let match_size = step.val.matches(&value[index..]);
+
+                        if match_size != 0 {
+                            is_match = true;
+                            index += match_size;
+                            stack.push(EvaluatedStep {
+                                step: step.clone(),
+                                match_size,
+                                backtrackable: true,
+                            });
+                        } else {
+                            keep_matching = false;
+                        }
+                    }
+
+                    if queue.is_empty() {
+                        state = true;
+                        break 'steps;
+                    }
+                    if !is_match {
+                        continue 'steps;
+                    }
+                }
+                RegexRep::Range { min, max } => {
+                    let mut match_size = 0;
+                    let mut count = 0;
+                    let mut keep_matching = true;
+                    while keep_matching {
+                        let size = step.val.matches(&value[index..]);
+
+                        if size == 0 {
+                            if let Some(min) = min {
+                                if count < min {
+                                    match backtrack(step, &mut stack, queue) {
+                                        Some(size) => {
+                                            index -= size;
+                                            continue 'steps;
+                                        }
+                                        None => {
+                                            break 'steps;
+                                        }
+                                    }
+                                } else if min == 0 {
+                                    state = true;
+                                }
+                            }
+                            keep_matching = false;
+                        } else {
+                            match_size += size;
+                            index += size;
+                            count += 1;
+                        }
+
+                        if let Some(max) = max {
+                            if count >= max {
+                                keep_matching = false;
+                            }
+                        }
+                    }
+                    if queue.is_empty() {
+                        state = true;
+                        break 'steps;
+                    }
+
+                    let mut backtrack_status = false;
+                    if let Some(0) = min {
+                        backtrack_status = true;
+                    } else if let Some(max) = max {
+                        if count < max {
+                            backtrack_status = true;
+                        }
+                    }
+
+                    stack.push(EvaluatedStep {
+                        step,
+                        match_size,
+                        backtrackable: backtrack_status,
+                    });
+                }
+            }
+        }
+
+        if !queue.is_empty() {
+            queue.rotate_left(queue_size - queue.len());
+        } else {
+            break;
+        }
+    }
+
+    Ok(LineEvaluated {
+        result: state,
+        line: value.to_string(),
+    })
+}
+
 impl Regex {
     /// Given a string, returns a new Regex if the string is a valid regex
     ///
@@ -452,162 +622,7 @@ impl Regex {
             }
         }
 
-        let regex_len = queue.len();
-        for char_index in 0..value.len() {
-            let mut stack: Vec<EvaluatedStep> = Vec::new();
-            let mut index = char_index;
-
-            'steps: while let Some(step) = queue.pop_front() {
-                if step.anchoring_start {
-                    if index == regex_len - 1 {
-                        return Ok(LineEvaluated {
-                            result: true,
-                            line: value.to_string(),
-                        });
-                    } else {
-                        break 'steps;
-                    }
-                }
-
-                if step.anchoring_end {
-                    if index == value.len() {
-                        return Ok(LineEvaluated {
-                            result: true,
-                            line: value.to_string(),
-                        });
-                    } else {
-                        break 'steps;
-                    }
-                }
-
-                match step.rep {
-                    RegexRep::Exact(n) => {
-                        let mut match_size = 0;
-                        for i in 0..n {
-                            let size = step.val.matches(&value[index..]);
-
-                            if size == 0 {
-                                match backtrack(step, &mut stack, &mut queue) {
-                                    Some(size) => {
-                                        index -= size;
-                                        continue 'steps;
-                                    }
-                                    None => {
-                                        break 'steps;
-                                    }
-                                }
-                            } else {
-                                if queue.is_empty() && i == n - 1 {
-                                    state = true;
-                                    break 'steps;
-                                }
-                                match_size += size;
-                                index += size;
-                            }
-                        }
-                        stack.push(EvaluatedStep {
-                            step,
-                            match_size,
-                            backtrackable: false,
-                        })
-                    }
-                    RegexRep::Any => {
-                        let mut is_match = false;
-                        let mut keep_matching = true;
-                        while keep_matching {
-                            let match_size = step.val.matches(&value[index..]);
-
-                            if match_size != 0 {
-                                is_match = true;
-                                index += match_size;
-                                stack.push(EvaluatedStep {
-                                    step: step.clone(),
-                                    match_size,
-                                    backtrackable: true,
-                                });
-                            } else {
-                                keep_matching = false;
-                            }
-                        }
-
-                        if queue.is_empty() {
-                            state = true;
-                            break 'steps;
-                        }
-                        if !is_match {
-                            continue 'steps;
-                        }
-                    }
-                    RegexRep::Range { min, max } => {
-                        let mut match_size = 0;
-                        let mut count = 0;
-                        let mut keep_matching = true;
-                        while keep_matching {
-                            let size = step.val.matches(&value[index..]);
-
-                            if size == 0 {
-                                if let Some(min) = min {
-                                    if count < min {
-                                        match backtrack(step, &mut stack, &mut queue) {
-                                            Some(size) => {
-                                                index -= size;
-                                                continue 'steps;
-                                            }
-                                            None => {
-                                                break 'steps;
-                                            }
-                                        }
-                                    } else if min == 0 {
-                                        state = true;
-                                    }
-                                }
-                                keep_matching = false;
-                            } else {
-                                match_size += size;
-                                index += size;
-                                count += 1;
-                            }
-
-                            if let Some(max) = max {
-                                if count >= max {
-                                    keep_matching = false;
-                                }
-                            }
-                        }
-                        if queue.is_empty() {
-                            state = true;
-                            break 'steps;
-                        }
-
-                        let mut backtrack_status = false;
-                        if let Some(0) = min {
-                            backtrack_status = true;
-                        } else if let Some(max) = max {
-                            if count < max {
-                                backtrack_status = true;
-                            }
-                        }
-
-                        stack.push(EvaluatedStep {
-                            step,
-                            match_size,
-                            backtrackable: backtrack_status,
-                        });
-                    }
-                }
-            }
-
-            if !queue.is_empty() {
-                queue.rotate_left(queue_size - queue.len());
-            } else {
-                break;
-            }
-        }
-
-        Ok(LineEvaluated {
-            result: state,
-            line: value.to_string(),
-        })
+        evaluate_step(&mut queue, value, state, queue_size)
     }
 }
 
