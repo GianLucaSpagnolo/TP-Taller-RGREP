@@ -1,0 +1,12 @@
+# Archivo usado unicamente para configurar los alias de los comandos de cargo
+
+[alias]
+
+# Comando de cargo clippy
+linter = "clippy --verbose --all-targets --all-features"
+
+# Comando de cargo tests
+tester = "test --verbose --all-targets --all-features"
+
+#Comandos de las aplicaciones
+grep = "run --"
