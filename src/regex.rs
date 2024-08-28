@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, str::Chars};
 
 pub mod regex_class;
 pub mod regex_error;
@@ -34,6 +34,287 @@ pub struct Regex {
 pub struct LineEvaluated {
     pub result: bool,
     pub line: String,
+}
+
+/// Point character for a regex
+/// "." - Matches any character
+///
+fn point_char() -> Option<RegexStep> {
+    Some(RegexStep {
+        rep: RegexRep::Exact(1),
+        val: RegexVal::Wildcard,
+        anchoring_start: false,
+        anchoring_end: false,
+    })
+}
+
+/// Wildcard character for a regex
+/// "*" - Matches zero or more of the preceding element
+///
+fn wildcard_char(steps: &mut [RegexStep]) -> Option<RegexStep> {
+    if steps.is_empty() {
+        Some(RegexStep {
+            rep: RegexRep::Any,
+            val: RegexVal::Wildcard,
+            anchoring_start: false,
+            anchoring_end: false,
+        })
+    } else {
+        if let Some(last) = steps.last_mut() {
+            last.rep = RegexRep::Any;
+        }
+        None
+    }
+}
+
+/// Option character for a regex
+/// "?" - Matches zero or one of the preceding element
+///
+fn option_char(steps: &mut [RegexStep]) -> Option<RegexStep> {
+    if steps.is_empty() {
+        Some(RegexStep {
+            rep: RegexRep::Range {
+                min: Some(0),
+                max: Some(1),
+            },
+            val: RegexVal::Wildcard,
+            anchoring_start: false,
+            anchoring_end: false,
+        })
+    } else {
+        if let Some(last) = steps.last_mut() {
+            last.rep = RegexRep::Range {
+                min: Some(0),
+                max: Some(1),
+            };
+        }
+        None
+    }
+}
+
+/// Option one or more character for a regex
+/// "+" - Matches one or more of the preceding element
+///
+fn option_one_or_more_char(steps: &mut [RegexStep]) -> Option<RegexStep> {
+    if steps.is_empty() {
+        Some(RegexStep {
+            rep: RegexRep::Range {
+                min: Some(1),
+                max: None,
+            },
+            val: RegexVal::Wildcard,
+            anchoring_start: false,
+            anchoring_end: false,
+        })
+    } else {
+        if let Some(last) = steps.last_mut() {
+            last.rep = RegexRep::Range {
+                min: Some(1),
+                max: None,
+            };
+        }
+        None
+    }
+}
+
+/// Repetition character for a regex
+/// "{" - Matches the preceding element a specified number of times
+/// "}" - End of the specified number of times
+///
+fn repetition_char(
+    steps: &mut [RegexStep],
+    chars_iter: &mut Chars<'_>,
+) -> Result<Option<RegexStep>, &'static str> {
+    if let Some(last) = steps.last_mut() {
+        let mut min = None;
+        let mut max = None;
+        let mut count = 0;
+        let mut is_comma = false;
+        let mut is_end = false;
+        let mut is_invalid = false;
+
+        for c in chars_iter.by_ref() {
+            match c {
+                '0'..='9' => {
+                    count = count * 10 + c.to_digit(10).unwrap() as usize;
+                }
+                ',' => {
+                    if is_comma {
+                        is_invalid = true;
+                        break;
+                    }
+                    is_comma = true;
+
+                    if count > 0 {
+                        min = Some(count);
+                        count = 0;
+                    }
+                }
+                '}' => {
+                    is_end = true;
+                    break;
+                }
+                _ => {
+                    is_invalid = true;
+                    break;
+                }
+            }
+        }
+
+        if is_invalid || !is_end {
+            return Err(RegexError::InvalidRange.message());
+        }
+
+        if count > 0 {
+            max = Some(count);
+        }
+
+        if !is_comma {
+            last.rep = RegexRep::Exact(count);
+        } else {
+            last.rep = RegexRep::Range { min, max };
+        }
+    }
+    Ok(None)
+}
+
+/// Anchor character for a regex
+/// "^" - Anchors the regex at the start of the line
+///
+fn anchor_start_char(anchoring_start: &mut bool) -> Option<RegexStep> {
+    *anchoring_start = true;
+    None
+}
+
+/// Anchor character for a regex
+/// "$" - Anchors the regex at the end of the line
+///
+fn anchor_end_char(steps: &mut Vec<RegexStep>) -> Option<RegexStep> {
+    let end_regex = RegexStep {
+        rep: RegexRep::Any,
+        val: RegexVal::Wildcard,
+        anchoring_start: false,
+        anchoring_end: false,
+    };
+    steps.insert(0, end_regex);
+    Some(RegexStep {
+        rep: RegexRep::Any,
+        val: RegexVal::Wildcard,
+        anchoring_start: false,
+        anchoring_end: true,
+    })
+}
+
+/// Bracket character for a regex
+/// "[" - Matches any character in the brackets
+/// "]" - End of the bracket
+///
+fn bracket_char(chars_iter: &mut Chars<'_>) -> Result<Option<RegexStep>, &'static str> {
+    let mut negated = false;
+    let mut vec = Vec::new();
+    let mut is_regex_class = false;
+
+    if let Some(c) = chars_iter.next() {
+        if c == '^' {
+            negated = true;
+        } else if c == '[' {
+            is_regex_class = true;
+        } else {
+            vec.push(c);
+        }
+    } else {
+        return Err(RegexError::InvalidBracket.message());
+    }
+
+    let mut end_bracket = false;
+    let mut regex_class = None;
+    if is_regex_class && chars_iter.next() == Some(':') {
+        let mut class_vec = Vec::new();
+        let mut end_class = false;
+        while let Some(c) = chars_iter.next() {
+            if c == ':' && chars_iter.next() == Some(']') {
+                end_class = true;
+                break;
+            }
+            class_vec.push(c);
+        }
+
+        if !end_class {
+            return Err(RegexError::InvalidClass.message());
+        }
+
+        let class: String = class_vec.iter().collect();
+        let character_class = determinate_regex_class(class);
+        match character_class {
+            Ok(class) => {
+                regex_class = Some(class);
+            }
+            Err(_) => return Err(RegexError::InvalidClass.message()),
+        }
+    }
+
+    while let Some(c) = chars_iter.next() {
+        match c {
+            ']' => {
+                end_bracket = true;
+                break;
+            }
+            '\\' => {
+                if let Some(literal) = chars_iter.next() {
+                    vec.push(literal);
+                } else {
+                    return Err(RegexError::InvalidBackslash.message());
+                }
+            }
+            _ => vec.push(c),
+        }
+    }
+
+    if !end_bracket {
+        return Err(RegexError::InvalidBracket.message());
+    }
+
+    let val;
+    if let Some(class) = regex_class {
+        val = RegexVal::Class(class);
+    } else if negated {
+        val = RegexVal::NotBracket(vec);
+    } else {
+        val = RegexVal::Bracket(vec);
+    }
+
+    Ok(Some(RegexStep {
+        rep: RegexRep::Exact(1),
+        val,
+        anchoring_start: false,
+        anchoring_end: false,
+    }))
+}
+
+/// Escape character for a regex
+/// "\\" - Escapes the following character
+///
+fn escape_char(chars_iter: &mut Chars<'_>) -> Result<Option<RegexStep>, &'static str> {
+    match chars_iter.next() {
+        Some(literal) => Ok(Some(RegexStep {
+            rep: RegexRep::Exact(1),
+            val: RegexVal::Literal(literal),
+            anchoring_start: false,
+            anchoring_end: false,
+        })),
+        None => return Err(RegexError::InvalidBackslash.message()),
+    }
+}
+
+/// Regular character for a regex
+///
+fn regular_char(c: char) -> Option<RegexStep> {
+    Some(RegexStep {
+        rep: RegexRep::Exact(1),
+        val: RegexVal::Literal(c),
+        anchoring_start: false,
+        anchoring_end: false,
+    })
 }
 
 impl TryFrom<&str> for Regex {
@@ -72,237 +353,16 @@ impl TryFrom<&str> for Regex {
         let mut chars_iter = expression.chars();
         while let Some(c) = chars_iter.next() {
             let step = match c {
-                '.' => Some(RegexStep {
-                    rep: RegexRep::Exact(1),
-                    val: RegexVal::Wildcard,
-                    anchoring_start: false,
-                    anchoring_end: false,
-                }),
-                '*' => {
-                    if steps.is_empty() {
-                        Some(RegexStep {
-                            rep: RegexRep::Any,
-                            val: RegexVal::Wildcard,
-                            anchoring_start: false,
-                            anchoring_end: false,
-                        })
-                    } else {
-                        if let Some(last) = steps.last_mut() {
-                            last.rep = RegexRep::Any;
-                        }
-                        None
-                    }
-                }
-                '?' => {
-                    if steps.is_empty() {
-                        Some(RegexStep {
-                            rep: RegexRep::Range {
-                                min: Some(0),
-                                max: Some(1),
-                            },
-                            val: RegexVal::Wildcard,
-                            anchoring_start: false,
-                            anchoring_end: false,
-                        })
-                    } else {
-                        if let Some(last) = steps.last_mut() {
-                            last.rep = RegexRep::Range {
-                                min: Some(0),
-                                max: Some(1),
-                            };
-                        }
-                        None
-                    }
-                }
-                '+' => {
-                    if steps.is_empty() {
-                        Some(RegexStep {
-                            rep: RegexRep::Range {
-                                min: Some(1),
-                                max: None,
-                            },
-                            val: RegexVal::Wildcard,
-                            anchoring_start: false,
-                            anchoring_end: false,
-                        })
-                    } else {
-                        if let Some(last) = steps.last_mut() {
-                            last.rep = RegexRep::Range {
-                                min: Some(1),
-                                max: None,
-                            };
-                        }
-                        None
-                    }
-                }
-                '{' => {
-                    if let Some(last) = steps.last_mut() {
-                        let mut min = None;
-                        let mut max = None;
-                        let mut count = 0;
-                        let mut is_comma = false;
-                        let mut is_end = false;
-                        let mut is_invalid = false;
-
-                        for c in chars_iter.by_ref() {
-                            match c {
-                                '0'..='9' => {
-                                    count = count * 10 + c.to_digit(10).unwrap() as usize;
-                                }
-                                ',' => {
-                                    if is_comma {
-                                        is_invalid = true;
-                                        break;
-                                    }
-                                    is_comma = true;
-
-                                    if count > 0 {
-                                        min = Some(count);
-                                        count = 0;
-                                    }
-                                }
-                                '}' => {
-                                    is_end = true;
-                                    break;
-                                }
-                                _ => {
-                                    is_invalid = true;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if is_invalid || !is_end {
-                            return Err(RegexError::InvalidRange.message());
-                        }
-
-                        if count > 0 {
-                            max = Some(count);
-                        }
-
-                        if !is_comma {
-                            last.rep = RegexRep::Exact(count);
-                        } else {
-                            last.rep = RegexRep::Range { min, max };
-                        }
-                    }
-                    None
-                }
-                '$' => {
-                    let end_regex = RegexStep {
-                        rep: RegexRep::Any,
-                        val: RegexVal::Wildcard,
-                        anchoring_start: false,
-                        anchoring_end: false,
-                    };
-                    steps.insert(0, end_regex);
-                    Some(RegexStep {
-                        rep: RegexRep::Any,
-                        val: RegexVal::Wildcard,
-                        anchoring_start: false,
-                        anchoring_end: true,
-                    })
-                }
-                '[' => {
-                    let mut negated = false;
-                    let mut vec = Vec::new();
-                    let mut is_regex_class = false;
-
-                    if let Some(c) = chars_iter.next() {
-                        if c == '^' {
-                            negated = true;
-                        } else if c == '[' {
-                            is_regex_class = true;
-                        } else {
-                            vec.push(c);
-                        }
-                    } else {
-                        return Err(RegexError::InvalidBracket.message());
-                    }
-
-                    let mut end_bracket = false;
-                    let mut regex_class = None;
-                    if is_regex_class && chars_iter.next() == Some(':') {
-                        let mut class_vec = Vec::new();
-                        let mut end_class = false;
-                        while let Some(c) = chars_iter.next() {
-                            if c == ':' && chars_iter.next() == Some(']') {
-                                end_class = true;
-                                break;
-                            }
-                            class_vec.push(c);
-                        }
-
-                        if !end_class {
-                            return Err(RegexError::InvalidClass.message());
-                        }
-
-                        let class: String = class_vec.iter().collect();
-                        let character_class = determinate_regex_class(class);
-                        match character_class {
-                            Ok(class) => {
-                                regex_class = Some(class);
-                            }
-                            Err(_) => return Err(RegexError::InvalidClass.message()),
-                        }
-                    }
-
-                    while let Some(c) = chars_iter.next() {
-                        match c {
-                            ']' => {
-                                end_bracket = true;
-                                break;
-                            }
-                            '\\' => {
-                                if let Some(literal) = chars_iter.next() {
-                                    vec.push(literal);
-                                } else {
-                                    return Err(RegexError::InvalidBackslash.message());
-                                }
-                            }
-                            _ => vec.push(c),
-                        }
-                    }
-
-                    if !end_bracket {
-                        return Err(RegexError::InvalidBracket.message());
-                    }
-
-                    let val;
-                    if let Some(class) = regex_class {
-                        val = RegexVal::Class(class);
-                    } else if negated {
-                        val = RegexVal::NotBracket(vec);
-                    } else {
-                        val = RegexVal::Bracket(vec);
-                    }
-
-                    Some(RegexStep {
-                        rep: RegexRep::Exact(1),
-                        val,
-                        anchoring_start: false,
-                        anchoring_end: false,
-                    })
-                }
-                '^' => {
-                    anchoring_start = true;
-                    None
-                }
-                '\\' => match chars_iter.next() {
-                    Some(literal) => Some(RegexStep {
-                        rep: RegexRep::Exact(1),
-                        val: RegexVal::Literal(literal),
-                        anchoring_start: false,
-                        anchoring_end: false,
-                    }),
-                    None => return Err(RegexError::InvalidBackslash.message()),
-                },
-                _ => Some(RegexStep {
-                    rep: RegexRep::Exact(1),
-                    val: RegexVal::Literal(c),
-                    anchoring_start: false,
-                    anchoring_end: false,
-                }),
+                '.' => point_char(),
+                '*' => wildcard_char(&mut steps),
+                '?' => option_char(&mut steps),
+                '+' => option_one_or_more_char(&mut steps),
+                '{' => repetition_char(&mut steps, &mut chars_iter)?,
+                '^' => anchor_start_char(&mut anchoring_start),
+                '$' => anchor_end_char(&mut steps),
+                '[' => bracket_char(&mut chars_iter)?,
+                '\\' => escape_char(&mut chars_iter)?,
+                _ => regular_char(c),
             };
 
             if let Some(s) = step {
